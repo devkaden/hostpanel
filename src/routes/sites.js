@@ -147,6 +147,10 @@ router.get(
       npmplusConfigured: npmplus.isConfigured(),
       provisioning: req.query.provisioning === '1',
       hostIp: getSetting('host_ip') || '',
+      // Previews hit the container directly by port, so they work before DNS
+      // or the reverse proxy are set up - and show this site specifically
+      // rather than whatever the domain currently resolves to.
+      previewUrl: getSetting('host_ip') ? `http://${getSetting('host_ip')}:${site.port}/` : '',
       config,
       hostShell: terminal.hostShellAvailable(),
       owners:

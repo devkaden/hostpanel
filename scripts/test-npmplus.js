@@ -42,6 +42,14 @@ const JWT = 's%3AeyJhbGciOiJSUzI1NiJ9.fake-signed-token.sig';
 const COOKIE_NAME = '__Host-Http-token';
 const REAL_PASSWORD = 'correct-horse';
 
+// Exactly what NPMplus 2.15.x permits when creating a certificate.
+const ALLOWED_CERT_FIELDS = new Set(['provider', 'nice_name', 'domain_names', 'meta']);
+const ALLOWED_CERT_META = new Set([
+  'certificate', 'certificate_key', 'reuse_key', 'dns_challenge',
+  'dns_provider_credentials', 'dns_provider', 'letsencrypt_certificate', 'propagation_seconds',
+]);
+const certPayloads = [];
+
 // Exactly the fields NPMplus 2.15.x permits on a proxy host.
 const ALLOWED_PROXY_FIELDS = new Set([
   'domain_names', 'forward_scheme', 'forward_host', 'forward_port', 'certificate_id',
@@ -119,7 +127,26 @@ const server = http.createServer((req, res) => {
       if (req.method === 'DELETE') return json(200, true);
     }
     if (req.method === 'POST' && req.url === '/api/nginx/certificates') {
-      return json(201, { id: 99, ...JSON.parse(body) });
+      const payload = JSON.parse(body || '{}');
+      const topExtra = Object.keys(payload).filter((k) => !ALLOWED_CERT_FIELDS.has(k));
+      if (topExtra.length) {
+        return json(400, { error: { code: 400, message: 'data must NOT have additional properties' } });
+      }
+      const meta = payload.meta || {};
+      if (mode === 'legacy') {
+        // Classic NPM demands the agreement flag and accepts the email.
+        if (meta.letsencrypt_agree !== true) {
+          return json(400, { error: { code: 400, message: "data/meta must have required property 'letsencrypt_agree'" } });
+        }
+      } else {
+        // NPMplus: meta is additionalProperties:false and has no email keys.
+        const metaExtra = Object.keys(meta).filter((k) => !ALLOWED_CERT_META.has(k));
+        if (metaExtra.length) {
+          return json(400, { error: { code: 400, message: 'data/meta must NOT have additional properties' } });
+        }
+      }
+      certPayloads.push(payload);
+      return json(201, { id: 99, ...payload });
     }
     return json(404, { error: { code: 404, message: 'not found' } });
   });
@@ -168,6 +195,17 @@ server.listen(0, '127.0.0.1', async () => {
     npmplus.invalidateToken();
     check('deletes a proxy host', (await npmplus.deleteProxyHost(42)) === true);
 
+    console.log('\ncertificate request shape');
+    {
+      const last = certPayloads[certPayloads.length - 1];
+      check('a certificate was accepted by the strict schema', Boolean(last), 'none sent');
+      check('meta omits letsencrypt_email', last && last.meta.letsencrypt_email === undefined,
+        JSON.stringify(last && last.meta));
+      check('meta omits letsencrypt_agree', last && last.meta.letsencrypt_agree === undefined,
+        JSON.stringify(last && last.meta));
+      check('meta still sets dns_challenge', last && last.meta.dns_challenge === false);
+    }
+
     console.log('\nstrict NPMplus schema (additionalProperties: false)');
     npmplus.invalidateToken();
     const sent = calls.filter((c) => c.method === 'POST' && c.url === '/api/nginx/proxy-hosts');
@@ -202,6 +240,17 @@ server.listen(0, '127.0.0.1', async () => {
     check('uses the body token', legacy.token === 'legacy-token');
     check('legacy GET succeeds', (await npmplus.listProxyHosts()).length === 1);
     check('bearer header was sent', calls[calls.length - 1].auth === 'Bearer legacy-token');
+
+    certPayloads.length = 0;
+    npmplus.invalidateToken();
+    const legacySync = await npmplus.syncProxyHost({ ...site, npm_proxy_id: null, npm_cert_id: null });
+    const legacyCert = certPayloads[certPayloads.length - 1];
+    check('legacy NPM gets a certificate too', legacySync.certId === 99, JSON.stringify(legacySync));
+    check('legacy meta carries letsencrypt_agree',
+      legacyCert && legacyCert.meta.letsencrypt_agree === true, JSON.stringify(legacyCert && legacyCert.meta));
+    check('legacy meta carries the email',
+      legacyCert && typeof legacyCert.meta.letsencrypt_email === 'string',
+      JSON.stringify(legacyCert && legacyCert.meta));
 
     console.log('\nTOTP-enabled account');
     mode = 'totp';

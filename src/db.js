@@ -132,6 +132,11 @@ addColumnIfMissing('sites', 'notes', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('users', 'site_quota', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('users', 'must_change_pw', 'INTEGER NOT NULL DEFAULT 0');
 
+// Per-person interface preferences. Empty means "follow the panel default",
+// so an existing user keeps whatever the administrator has configured.
+addColumnIfMissing('users', 'pref_theme', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('users', 'pref_ui_mode', "TEXT NOT NULL DEFAULT ''");
+
 /*
  * Before the internal port became configurable, app_port defaulted to 3000 for
  * every site type but was only ever used by Node - the others were always

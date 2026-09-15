@@ -396,28 +396,60 @@ async function findProxyHostByDomain(domain) {
   return hosts.find((h) => (h.domain_names || []).some((d) => String(d).toLowerCase() === needle));
 }
 
+/**
+ * Requests a Let's Encrypt certificate.
+ *
+ * The two NPM generations disagree about `meta`:
+ *   - NPMplus 2.15.x accepts only {dns_challenge} (plus DNS-provider keys).
+ *     The ACME account email lives in NPMplus's own configuration, so sending
+ *     letsencrypt_email/letsencrypt_agree is rejected outright by its
+ *     additionalProperties:false schema.
+ *   - Classic NPM requires letsencrypt_agree and takes the email per request.
+ *
+ * Cookie auth means modern NPMplus, so that shape is tried first; either way
+ * the other shape is attempted if the first is rejected.
+ */
 async function requestCertificate(domains) {
   const c = cfg();
-  if (!c.leEmail) {
-    throw new Error("A Let's Encrypt email is required before a certificate can be requested.");
+  const session = await getSession();
+  const modernFirst = !session.token; // cookie auth == current NPMplus
+
+  const modernMeta = { dns_challenge: false };
+  const legacyMeta = {
+    letsencrypt_email: c.leEmail,
+    letsencrypt_agree: true,
+    dns_challenge: false,
+  };
+
+  const attempt = async (meta) =>
+    api(
+      'POST',
+      '/api/nginx/certificates',
+      { provider: 'letsencrypt', nice_name: domains[0], domain_names: domains, meta },
+      CERT_TIMEOUT_MS
+    );
+
+  const order = modernFirst ? [modernMeta, legacyMeta] : [legacyMeta, modernMeta];
+  let lastError = null;
+
+  for (const meta of order) {
+    // Classic NPM cannot issue a certificate without an email to register.
+    if (meta === legacyMeta && !c.leEmail) continue;
+    try {
+      const cert = await attempt(meta);
+      if (!cert || !cert.id) throw new Error('NPMplus did not return a certificate id');
+      return cert.id;
+    } catch (err) {
+      lastError = err;
+      // Only a schema disagreement is worth retrying with the other shape.
+      const schemaMismatch =
+        err.statusCode === 400 &&
+        /(additional propert|required propert)/i.test(err.message || '');
+      if (!schemaMismatch) throw err;
+    }
   }
-  const cert = await api(
-    'POST',
-    '/api/nginx/certificates',
-    {
-      provider: 'letsencrypt',
-      nice_name: domains[0],
-      domain_names: domains,
-      meta: {
-        letsencrypt_email: c.leEmail,
-        letsencrypt_agree: true,
-        dns_challenge: false,
-      },
-    },
-    CERT_TIMEOUT_MS
-  );
-  if (!cert || !cert.id) throw new Error('NPMplus did not return a certificate id');
-  return cert.id;
+
+  throw lastError || new Error('Could not request a certificate');
 }
 
 async function deleteCertificate(id) {

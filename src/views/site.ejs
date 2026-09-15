@@ -45,6 +45,50 @@
     <div class="console" id="progress-console">Waiting for output...</div>
   </div>
 
+  <% if (previewUrl) { %>
+    <div class="card" id="preview-card">
+      <div class="card-head">
+        <h2>Preview</h2>
+        <div class="preview-bar" style="margin:0">
+          <div class="seg" role="group" aria-label="Preview width">
+            <button type="button" data-size="desktop" aria-pressed="true">Desktop</button>
+            <button type="button" data-size="tablet" aria-pressed="false">Tablet</button>
+            <button type="button" data-size="phone" aria-pressed="false">Phone</button>
+          </div>
+          <button class="btn btn-sm" id="preview-reload">Refresh</button>
+          <a class="btn btn-sm" href="<%= previewUrl %>" target="_blank" rel="noopener">Open in a new tab</a>
+          <button class="btn btn-sm btn-ghost" id="preview-hide">Hide</button>
+        </div>
+      </div>
+
+      <div class="preview-bar">
+        <span class="preview-url"><%= previewUrl %></span>
+        <% if (domains.length) { %>
+          <span class="muted small">
+            &mdash; this is the site itself, reached directly. Visitors go through
+            <%= domains[0] %>.
+          </span>
+        <% } %>
+      </div>
+
+      <div class="preview-frame size-desktop" id="preview-frame">
+        <iframe
+          id="preview-iframe"
+          src="<%= previewUrl %>"
+          title="Preview of <%= site.name %>"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        <% if (live.state !== 'running' && live.state !== 'healthy') { %>
+          <div class="preview-note">
+            The site is <%= live.state %>, so there is nothing to show yet.<br>
+            Start it above, then refresh this preview.
+          </div>
+        <% } %>
+      </div>
+    </div>
+  <% } %>
+
   <div class="grid grid-2">
 
     <!-- ------------------------------------------------------------ left -->
@@ -445,6 +489,42 @@
       btn.disabled = false;
     }
   });
+
+  /* --------------------------------------------------------- preview */
+  var frame = document.getElementById('preview-frame');
+  if (frame) {
+    var iframe = document.getElementById('preview-iframe');
+
+    document.querySelectorAll('[data-size]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var size = b.getAttribute('data-size');
+        frame.className = 'preview-frame size-' + size;
+        document.querySelectorAll('[data-size]').forEach(function (other) {
+          other.setAttribute('aria-pressed', String(other === b));
+        });
+        try { localStorage.setItem('hp-preview-size', size); } catch (e) { /* ignore */ }
+      });
+    });
+
+    // Remember the chosen width between visits.
+    try {
+      var saved = localStorage.getItem('hp-preview-size');
+      if (saved) {
+        var btn = document.querySelector('[data-size="' + saved + '"]');
+        if (btn) btn.click();
+      }
+    } catch (e) { /* ignore */ }
+
+    document.getElementById('preview-reload').addEventListener('click', function () {
+      // Re-assigning src re-requests the page; a cache-buster avoids a stale render.
+      var base = iframe.src.split('#')[0].split('?')[0];
+      iframe.src = base + '?_=' + Date.now();
+    });
+
+    document.getElementById('preview-hide').addEventListener('click', function () {
+      document.getElementById('preview-card').style.display = 'none';
+    });
+  }
 
   /* ---------------------------------------------------------- preset */
   var tplSave = document.getElementById('tpl-save');

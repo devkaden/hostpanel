@@ -16,10 +16,13 @@
     (function () {
       var serverTheme = <%- jsonScript(typeof themeSetting !== 'undefined' ? themeSetting : 'system') %>;
       var serverMode = <%- jsonScript(typeof uiModeSetting !== 'undefined' ? uiModeSetting : 'simple') %>;
+      // The server value wins: it is the preference saved against this
+      // account. localStorage is only kept in step so a page painted before
+      // the server responds still looks right.
       var theme = serverTheme, mode = serverMode;
       try {
-        theme = localStorage.getItem('hp-theme') || serverTheme;
-        mode = localStorage.getItem('hp-mode') || serverMode;
+        localStorage.setItem('hp-theme', theme);
+        localStorage.setItem('hp-mode', mode);
       } catch (e) { /* private mode */ }
 
       if (theme === 'system') {

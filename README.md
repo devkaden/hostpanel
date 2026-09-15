@@ -71,6 +71,13 @@ Older NPM and NPMplus builds returned `{"token": "…"}` and took a Bearer
 header. That path still works and is used automatically when a token is present
 in the body, so the panel handles both generations.
 
+The `meta` object on a certificate request differs too: NPMplus accepts only
+`dns_challenge` (plus DNS-provider keys) and takes the ACME account email from
+its own configuration, while classic NPM requires `letsencrypt_agree` and the
+email per request. The panel sends the shape that matches whichever it is
+talking to, and falls back to the other if the first is rejected. The
+**Let's Encrypt email** field in Settings is therefore only used by classic NPM.
+
 Two accounts the panel cannot use:
 
 - **TOTP enabled** — sign-in returns `{"requiresTotp": true}` and a challenge
@@ -203,8 +210,17 @@ three-step wizard: this server's address, the reverse proxy, and a first site.
 Re-run it any time from Settings → Setup guide.
 
 **Theme and branding.** Light, dark, or match the device. The panel name, a logo
-and the accent colour are all configurable. Individuals can override the theme
-with the toggle in the top bar.
+and the accent colour are all configurable.
+
+**Preferences follow the person, not the browser.** The theme and Simple/Advanced
+toggles are saved against the signed-in account, so they survive a refresh, a
+different device and the next login. The administrator's setting is the default
+for anyone who has not chosen for themselves.
+
+**Live preview.** Each site page embeds the running site, with desktop, tablet
+and phone widths. The preview hits the container directly by port, so it works
+before DNS or the reverse proxy exist, and always shows *that* site rather than
+whatever the domain currently resolves to.
 
 ### Ports
 

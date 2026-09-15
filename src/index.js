@@ -61,6 +61,14 @@ app.use(auth.csrf);
  * framed, MIME types are never sniffed, and no referrer leaks the panel URL.
  */
 app.use((req, res, next) => {
+  // Site previews are shown in an iframe, so the panel must be allowed to
+  // frame its own sites. Scoped to the configured host address (any port)
+  // rather than opening framing up to the whole web.
+  const hostIp = getSetting('host_ip');
+  const frameSrc = ["'self'", hostIp ? `http://${hostIp}:*` : '', 'https:']
+    .filter(Boolean)
+    .join(' ');
+
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -74,6 +82,7 @@ app.use((req, res, next) => {
       "img-src 'self' data:",
       "font-src 'self' data:",
       "connect-src 'self' ws: wss:",
+      `frame-src ${frameSrc}`,
       "form-action 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",

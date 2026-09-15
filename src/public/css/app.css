@@ -517,3 +517,50 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 
 .field-ok { color: var(--green); font-size: .78rem; margin-top: .3rem; }
 .field-bad { color: var(--red); font-size: .78rem; margin-top: .3rem; }
+
+/* ------------------------------------------------------- site preview --- */
+.preview-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  overflow: hidden;
+  position: relative;
+  transition: max-width .18s ease;
+  margin: 0 auto;
+}
+.preview-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.preview-frame.size-desktop { max-width: 100%; height: 460px; }
+.preview-frame.size-tablet  { max-width: 768px; height: 560px; }
+.preview-frame.size-phone   { max-width: 390px; height: 620px; }
+
+.preview-bar {
+  display: flex; align-items: center; gap: .5rem;
+  flex-wrap: wrap; margin-bottom: .8rem;
+}
+.preview-url {
+  font-family: var(--mono);
+  font-size: .8rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  padding: .2rem .5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.preview-note {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: .88rem;
+  text-align: center;
+  padding: 1.5rem;
+}

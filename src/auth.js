@@ -177,6 +177,10 @@ function requireAuth(req, res, next) {
     }
     req.user = fresh;
     res.locals.user = publicUser(fresh);
+    // A saved personal preference overrides the panel-wide default, so the
+    // choice follows the account rather than the browser.
+    if (fresh.pref_theme) res.locals.themeSetting = fresh.pref_theme;
+    if (fresh.pref_ui_mode) res.locals.uiModeSetting = fresh.pref_ui_mode;
     // Force a password change before anything else is reachable.
     if (fresh.must_change_pw && !req.path.startsWith('/account/password') && !wantsJson(req)) {
       return res.redirect('/account/password');

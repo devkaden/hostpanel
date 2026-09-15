@@ -120,6 +120,21 @@ router.post('/account/password', auth.requireAuth, (req, res) => {
   return res.redirect('/?changed=1');
 });
 
+/**
+ * Saves the interface preferences of whoever is signed in. Called by the theme
+ * and Simple/Advanced toggles so the choice survives a refresh, a new device
+ * and a fresh login.
+ */
+router.post('/account/prefs', auth.requireAuth, (req, res) => {
+  const theme = ['system', 'dark', 'light'].includes(req.body.theme) ? req.body.theme : null;
+  const mode = ['simple', 'advanced'].includes(req.body.ui_mode) ? req.body.ui_mode : null;
+  if (!theme && !mode) return res.status(400).json({ error: 'Nothing to save' });
+
+  if (theme) db.prepare('UPDATE users SET pref_theme = ? WHERE id = ?').run(theme, req.user.id);
+  if (mode) db.prepare('UPDATE users SET pref_ui_mode = ? WHERE id = ?').run(mode, req.user.id);
+  return res.json({ ok: true, theme, ui_mode: mode });
+});
+
 router.get('/healthz', (req, res) => {
   res.json({ ok: true, panel: getSetting('panel_title'), time: new Date().toISOString() });
 });

@@ -134,7 +134,16 @@
   }
 
   /* ------------------------------------------------ interface mode ---- */
-  function setMode(mode) {
+  // Preferences are stored against the signed-in account, so they follow the
+  // person across refreshes, devices and logins. localStorage is only a
+  // pre-paint cache so a page never flashes the wrong theme.
+  function savePref(body) {
+    api('/account/prefs', { body: body }).catch(function () {
+      /* a failed save still applies for this page */
+    });
+  }
+
+  function setMode(mode, persist) {
     var value = mode === 'advanced' ? 'advanced' : 'simple';
     document.documentElement.setAttribute('data-mode', value);
     document.body.className = 'mode-' + value;
@@ -142,6 +151,7 @@
     document.querySelectorAll('[data-mode-set]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-mode-set') === value));
     });
+    if (persist) savePref({ ui_mode: value });
   }
 
   function currentMode() {
@@ -149,7 +159,7 @@
   }
 
   /* ------------------------------------------------------- theming ----- */
-  function setTheme(theme) {
+  function setTheme(theme, persist) {
     var resolved = theme;
     if (theme === 'system') {
       resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
@@ -157,6 +167,7 @@
     }
     document.documentElement.setAttribute('data-theme', resolved);
     try { localStorage.setItem('hp-theme', theme); } catch (e) { /* private mode */ }
+    if (persist) savePref({ theme: theme });
   }
 
   function currentTheme() {
@@ -169,12 +180,12 @@
     var toggle = document.getElementById('theme-toggle');
     if (toggle) {
       toggle.addEventListener('click', function () {
-        setTheme(currentTheme() === 'light' ? 'dark' : 'light');
+        setTheme(currentTheme() === 'light' ? 'dark' : 'light', true);
       });
     }
 
     document.querySelectorAll('[data-mode-set]').forEach(function (b) {
-      b.addEventListener('click', function () { setMode(b.getAttribute('data-mode-set')); });
+      b.addEventListener('click', function () { setMode(b.getAttribute('data-mode-set'), true); });
     });
 
     // Help bubbles are reachable by keyboard, not just hover.
