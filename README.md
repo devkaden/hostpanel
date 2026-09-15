@@ -11,6 +11,8 @@ proxy your domain at that port and issue the Let's Encrypt certificate.
 inline editor, a browser shell into any container, live logs, per-site cron, and
 full NPMplus proxy + SSL automation.
 
+**Repository:** <https://github.com/devkaden/hostpanel>
+
 ---
 
 ## Install
@@ -18,7 +20,7 @@ full NPMplus proxy + SSL automation.
 On a fresh Debian 12/13 (or Ubuntu 22.04+) LXC or VM:
 
 ```bash
-git clone <your-repo-url> hostpanel
+git clone https://github.com/devkaden/hostpanel.git
 cd hostpanel
 sudo ./install.sh
 ```
@@ -269,8 +271,43 @@ npm run check
 database and every site directory. For WordPress, stop the site first or take a
 `mariadb-dump` from its shell rather than copying `db/` live.
 
-**Updating.** Pull, then re-run `./install.sh`; it rsyncs the app, keeps your
-`.env` and data, reinstalls dependencies and restarts the service.
+### Updating
+
+From your clone on the panel host:
+
+```bash
+cd ~/hostpanel
+git pull
+sudo ./install.sh
+```
+
+Re-running the installer is the update path. It rsyncs the new code over
+`/opt/hostpanel/app`, keeps your `.env` and everything in
+`/opt/hostpanel/data`, reinstalls dependencies and restarts the service.
+Running sites are untouched — their containers keep serving throughout.
+
+If you do not have a clone on the host (the panel is installed but the source
+is not), create one next to it:
+
+```bash
+cd ~
+git clone https://github.com/devkaden/hostpanel.git
+cd hostpanel
+sudo ./install.sh
+```
+
+Check it came back up:
+
+```bash
+systemctl status hostpanel
+curl -s localhost:8890/healthz
+```
+
+To verify the new code before installing it:
+
+```bash
+npm test
+```
 
 ---
 
