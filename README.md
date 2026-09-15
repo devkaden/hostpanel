@@ -22,7 +22,7 @@ On a fresh Debian 12/13 (or Ubuntu 22.04+) LXC or VM:
 ```bash
 git clone https://github.com/devkaden/hostpanel.git
 cd hostpanel
-sudo ./install.sh
+sudo ./install.sh     # already root? just ./install.sh
 ```
 
 The installer sets up Node.js 22, Docker Engine, the panel and a systemd unit,
@@ -278,7 +278,7 @@ From your clone on the panel host:
 ```bash
 cd ~/hostpanel
 git pull
-sudo ./install.sh
+sudo ./install.sh     # already root? just ./install.sh
 ```
 
 Re-running the installer is the update path. It rsyncs the new code over

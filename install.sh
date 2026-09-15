@@ -203,6 +203,13 @@ EOF
 
 systemctl daemon-reload
 systemctl enable "$SERVICE" >/dev/null
+
+# Remember the credentials file's state before boot, so an update never prints
+# the password from the original install as if it were new.
+CREDS="${DATA_DIR}/initial-admin-password.txt"
+CREDS_BEFORE=""
+[ -f "$CREDS" ] && CREDS_BEFORE="$(stat -c %Y "$CREDS" 2>/dev/null || echo)"
+
 systemctl restart "$SERVICE"
 ok "service enabled and started"
 
@@ -215,25 +222,32 @@ fi
 
 # ------------------------------------------------------------------ done ----
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-CREDS="${DATA_DIR}/initial-admin-password.txt"
+
+CREDS_AFTER=""
+[ -f "$CREDS" ] && CREDS_AFTER="$(stat -c %Y "$CREDS" 2>/dev/null || echo)"
+FRESH_ADMIN=false
+[ -n "$CREDS_AFTER" ] && [ "$CREDS_AFTER" != "$CREDS_BEFORE" ] && FRESH_ADMIN=true
 
 echo
 echo "${GREEN}${BOLD}HostPanel is running.${RESET}"
 echo
 echo "  URL       http://${HOST_IP:-<this-host>}:${PANEL_PORT}"
-if [ -f "$CREDS" ]; then
+if [ "$FRESH_ADMIN" = true ]; then
   echo "  Login     $(grep -m1 username "$CREDS" | cut -d' ' -f2-)"
   echo "  Password  $(grep -m1 password "$CREDS" | cut -d' ' -f2-)"
   echo "            ${DIM}(also saved in ${CREDS}; you must change it at first login)${RESET}"
+  echo
+  echo "  ${BOLD}Next steps${RESET}"
+  echo "   1. Sign in and change the password."
+  echo "   2. Settings -> NPMplus: paste your NPMplus URL, admin email and password, then Test connection."
+  echo "   3. Settings -> Host IP: confirm the address NPMplus should forward traffic to."
+  echo "   4. Create your first site."
 else
-  echo "  ${DIM}An admin account already existed, so no new password was generated.${RESET}"
+  echo "  Login     your existing account (no new password was generated)"
+  echo
+  echo "  ${BOLD}Updated.${RESET} Your sites, users and settings are unchanged."
+  echo "   ${DIM}Forgot the password? Run: cd ${APP_DIR} && npm run reset-admin${RESET}"
 fi
-echo
-echo "  ${BOLD}Next steps${RESET}"
-echo "   1. Sign in and change the password."
-echo "   2. Settings -> NPMplus: paste your NPMplus URL, admin email and password, then Test connection."
-echo "   3. Settings -> Host IP: confirm the address NPMplus should forward traffic to."
-echo "   4. Create your first site."
 echo
 echo "  ${DIM}logs:    journalctl -u ${SERVICE} -f${RESET}"
 echo "  ${DIM}restart: systemctl restart ${SERVICE}${RESET}"
