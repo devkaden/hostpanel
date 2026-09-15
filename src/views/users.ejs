@@ -1,0 +1,181 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Users</h1>
+      <p class="sub">Administrators see and manage every site. Standard users only see the sites they own.</p>
+    </div>
+  </div>
+
+  <% if (error) { %><div class="alert alert-error"><%= error %></div><% } %>
+
+  <% if (generatedPassword) { %>
+    <div class="alert alert-ok">
+      <strong><%= generatedPassword.username %> created.</strong> This password is shown once and the user must change it at first login.
+      <div class="copy-field mt">
+        <input type="text" value="<%= generatedPassword.password %>" readonly onclick="this.select()">
+        <button class="btn btn-sm" data-copy="<%= generatedPassword.password %>" data-copy-label="Password">Copy</button>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="grid grid-2">
+    <div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>User</th><th style="width:90px">Role</th><th style="width:70px">Sites</th><th style="width:80px">Quota</th><th style="width:80px">Status</th><th style="width:200px" class="right">Actions</th></tr>
+            </thead>
+            <tbody>
+              <% users.forEach(function (u) { %>
+                <tr>
+                  <td>
+                    <strong><%= u.username %></strong>
+                    <% if (u.email) { %><div class="muted small"><%= u.email %></div><% } %>
+                    <div class="muted small">last login: <%= u.last_login || 'never' %></div>
+                  </td>
+                  <td><span class="pill <%= u.role === 'admin' ? 'pill-admin' : '' %>"><%= u.role %></span></td>
+                  <td><%= u.site_count %></td>
+                  <td><%= u.site_quota ? u.site_quota : 'none' %></td>
+                  <td><span class="pill <%= u.active ? 'pill-running' : 'pill-error' %>"><%= u.active ? 'active' : 'disabled' %></span></td>
+                  <td class="right">
+                    <div class="file-actions">
+                      <button class="btn btn-sm" onclick='editUser(<%= JSON.stringify({ id: u.id, username: u.username, email: u.email || "", role: u.role, active: !!u.active, site_quota: u.site_quota }) %>)'>Edit</button>
+                      <button class="btn btn-sm" onclick='resetPw(<%= u.id %>, <%= JSON.stringify(u.username) %>)'>Reset pw</button>
+                      <% if (u.id !== user.id) { %>
+                        <button class="btn btn-sm btn-danger" onclick='delUser(<%= u.id %>, <%= JSON.stringify(u.username) %>, <%= u.site_count %>)'>Del</button>
+                      <% } %>
+                    </div>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Add a user</h2>
+        <form method="post" action="/users">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="u-username">Username</label>
+            <input id="u-username" name="username" type="text" required autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="u-email">Email (optional)</label>
+            <input id="u-email" name="email" type="email" autocomplete="off">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="u-role">Role</label>
+              <select id="u-role" name="role">
+                <option value="user">Standard user</option>
+                <option value="admin">Administrator</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="u-quota">Site limit</label>
+              <input id="u-quota" name="site_quota" type="number" min="0" value="0">
+              <div class="hint">0 = unlimited.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="u-password">Password</label>
+            <input id="u-password" name="password" type="text" autocomplete="off" placeholder="leave blank to generate one">
+            <div class="hint">At least 10 characters if you set it yourself. The user must change it at first login either way.</div>
+          </div>
+          <button class="btn btn-primary" type="submit">Create user</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="edit-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="edit-title">Edit user</h3><button class="btn btn-sm btn-ghost" data-close-modal="edit-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="e-email">Email</label><input id="e-email" type="email"></div>
+      <div class="field-row">
+        <div class="field">
+          <label for="e-role">Role</label>
+          <select id="e-role"><option value="user">Standard user</option><option value="admin">Administrator</option></select>
+        </div>
+        <div class="field">
+          <label for="e-quota">Site limit</label>
+          <input id="e-quota" type="number" min="0">
+        </div>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="e-active">
+        <label for="e-active">Account is active</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="edit-modal">Cancel</button>
+      <button class="btn btn-primary" id="edit-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var editingId = null;
+  var USERS = <%- JSON.stringify(users.map(function (u) { return { id: u.id, username: u.username }; })) %>;
+
+  function editUser(u) {
+    editingId = u.id;
+    document.getElementById('edit-title').textContent = 'Edit ' + u.username;
+    document.getElementById('e-email').value = u.email;
+    document.getElementById('e-role').value = u.role;
+    document.getElementById('e-quota').value = u.site_quota;
+    document.getElementById('e-active').checked = u.active;
+    HP.openModal('edit-modal');
+  }
+
+  document.getElementById('edit-save').addEventListener('click', async function () {
+    try {
+      await HP.api('/users/' + editingId + '/update', {
+        body: {
+          email: document.getElementById('e-email').value,
+          role: document.getElementById('e-role').value,
+          site_quota: document.getElementById('e-quota').value,
+          active: document.getElementById('e-active').checked
+        }
+      });
+      HP.toast('Saved', 'ok');
+      setTimeout(function () { location.reload(); }, 500);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  async function resetPw(id, username) {
+    if (!confirm('Generate a new password for ' + username + '? Their current one stops working immediately.')) return;
+    try {
+      var res = await HP.api('/users/' + id + '/password', { body: {} });
+      prompt('New password for ' + username + ' (copy it now):', res.password);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  async function delUser(id, username, siteCount) {
+    var reassign = null;
+    if (siteCount > 0) {
+      var options = USERS.filter(function (u) { return u.id !== id; })
+        .map(function (u) { return u.id + ' = ' + u.username; }).join('\n');
+      var answer = prompt(username + ' owns ' + siteCount + ' site(s).\nEnter the user ID to reassign them to:\n\n' + options);
+      if (!answer) return;
+      reassign = answer.trim();
+    } else if (!confirm('Delete ' + username + '?')) {
+      return;
+    }
+    try {
+      await HP.api('/users/' + id + '/delete', { body: { reassign_to: reassign } });
+      HP.toast('Deleted', 'ok');
+      setTimeout(function () { location.reload(); }, 500);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+</script>
+<%- include('partials/foot') %>

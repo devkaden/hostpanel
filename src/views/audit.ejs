@@ -1,0 +1,36 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Activity</h1>
+      <p class="sub">The last 300 actions<%= user.role === 'admin' ? ' across the panel' : ' you performed' %>.</p>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th style="width:170px">When (UTC)</th><th style="width:130px">User</th><th style="width:170px">Action</th><th style="width:160px">Target</th><th>Detail</th><th style="width:120px">IP</th></tr>
+        </thead>
+        <tbody>
+          <% if (!rows.length) { %>
+            <tr><td colspan="6" class="muted" style="padding:1.6rem">Nothing recorded yet.</td></tr>
+          <% } %>
+          <% rows.forEach(function (r) { %>
+            <tr>
+              <td class="muted small nowrap"><%= r.created_at %></td>
+              <td><%= r.username || '-' %></td>
+              <td><code class="inline"><%= r.action %></code></td>
+              <td class="small"><%= r.target %></td>
+              <td class="muted small" style="max-width:340px;overflow:hidden;text-overflow:ellipsis"><%= r.detail %></td>
+              <td class="muted small mono"><%= r.ip %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<%- include('partials/foot') %>

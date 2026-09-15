@@ -1,0 +1,198 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Settings</h1>
+      <p class="sub">Panel configuration, the NPMplus connection and host details.</p>
+    </div>
+  </div>
+
+  <% if (saved) { %><div class="alert alert-ok">Settings saved.</div><% } %>
+
+  <div class="grid grid-2">
+    <div>
+      <form method="post" action="/settings">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+        <div class="card">
+          <h2>Panel</h2>
+          <div class="field">
+            <label for="panel_title">Panel name</label>
+            <input id="panel_title" name="panel_title" type="text" value="<%= settings.panel_title %>">
+          </div>
+          <div class="field">
+            <label for="host_ip">Host IP for reverse proxying</label>
+            <div style="display:flex;gap:.5rem">
+              <input id="host_ip" name="host_ip" type="text" value="<%= settings.host_ip %>" placeholder="192.168.1.50">
+              <button class="btn" type="button" id="detect-ip">Detect</button>
+            </div>
+            <div class="hint">
+              The address NPMplus forwards traffic to. Detected on this machine: <code class="inline"><%= detectedIp || 'none' %></code>.
+              If NPMplus runs on another host, this must be an address that host can reach.
+            </div>
+          </div>
+          <div class="check">
+            <input type="checkbox" id="allow_host_shell" name="allow_host_shell" <%= settings.allow_host_shell === '1' ? 'checked' : '' %>>
+            <div>
+              <label for="allow_host_shell">Allow the host shell for administrators</label>
+              <div class="hint">
+                Gives admins a root-level shell on this machine through the browser.
+                <% if (!hostShellSupported) { %>Currently unavailable: the optional <code class="inline">node-pty</code> package is not installed.<% } %>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>NPMplus</h2>
+            <span class="pill <%= settings.npmplus_enabled === '1' ? 'pill-running' : '' %>"><%= settings.npmplus_enabled === '1' ? 'enabled' : 'disabled' %></span>
+          </div>
+
+          <div class="check">
+            <input type="checkbox" id="npmplus_enabled" name="npmplus_enabled" <%= settings.npmplus_enabled === '1' ? 'checked' : '' %>>
+            <div>
+              <label for="npmplus_enabled">Manage reverse proxy hosts automatically</label>
+              <div class="hint">When on, creating a site with a domain also creates the proxy host and requests a certificate.</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="npmplus_url">NPMplus URL</label>
+            <input id="npmplus_url" name="npmplus_url" type="text" value="<%= settings.npmplus_url %>" placeholder="https://npm.example.com:81">
+            <div class="hint">The admin interface URL, including the port. No trailing slash.</div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="npmplus_email">Admin email</label>
+              <input id="npmplus_email" name="npmplus_email" type="text" value="<%= settings.npmplus_email %>" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="npmplus_password">Admin password</label>
+              <input id="npmplus_password" name="npmplus_password" type="password" value="<%= settings.npmplus_password %>" autocomplete="new-password">
+              <div class="hint">Leave as-is to keep the stored password.</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="npmplus_le_email">Let's Encrypt email</label>
+            <input id="npmplus_le_email" name="npmplus_le_email" type="text" value="<%= settings.npmplus_le_email %>" placeholder="you@example.com">
+            <div class="hint">Used for expiry notices on certificates the panel requests. Falls back to the admin email.</div>
+          </div>
+
+          <div class="check">
+            <input type="checkbox" id="npmplus_insecure" name="npmplus_insecure" <%= settings.npmplus_insecure === '1' ? 'checked' : '' %>>
+            <div>
+              <label for="npmplus_insecure">Allow a self-signed certificate on the NPMplus admin interface</label>
+              <div class="hint">Only affects the panel's API calls to NPMplus, not your sites.</div>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn" type="button" id="test-npm">Test connection</button>
+          </div>
+          <div id="test-result" class="mt"></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" type="submit">Save settings</button>
+        </div>
+      </form>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Docker</h2>
+          <span class="pill <%= docker.ok ? 'pill-running' : 'pill-error' %>"><%= docker.ok ? 'connected' : 'unavailable' %></span>
+        </div>
+        <% if (docker.ok) { %>
+          <dl class="dl">
+            <dt>Server version</dt><dd><%= dockerInfo.version %></dd>
+            <dt>Containers</dt><dd><%= dockerInfo.running %> running / <%= dockerInfo.containers %> total</dd>
+            <dt>Images</dt><dd><%= dockerInfo.images %></dd>
+            <dt>Host CPUs</dt><dd><%= dockerInfo.cpus %></dd>
+            <dt>Host memory</dt><dd><%= dockerMem %></dd>
+          </dl>
+        <% } else { %>
+          <div class="alert alert-error mb0">
+            <%= docker.error %><br>
+            Check that the socket exists and that the panel's user is in the <code class="inline">docker</code> group.
+          </div>
+        <% } %>
+      </div>
+
+      <div class="card">
+        <h2>Paths and ports</h2>
+        <dl class="dl">
+          <dt>Data directory</dt><dd><code class="inline"><%= dataDir %></code></dd>
+          <dt>Site directories</dt><dd><code class="inline"><%= config.sitesDir %>/&lt;name&gt;</code></dd>
+          <dt>Panel port</dt><dd><%= config.port %></dd>
+          <dt>Site port range</dt><dd><%= config.portRangeStart %> - <%= config.portRangeEnd %></dd>
+          <dt>Max upload</dt><dd><%= Math.round(config.maxUploadBytes / 1048576) %> MB</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>NPMplus proxy hosts</h2>
+          <button class="btn btn-sm" id="load-hosts">Load</button>
+        </div>
+        <div id="hosts-list" class="muted small">Click load to list the proxy hosts NPMplus currently knows about.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('detect-ip').addEventListener('click', async function () {
+    try {
+      var res = await HP.api('/settings/detect-ip', { body: {} });
+      if (res.ip) { document.getElementById('host_ip').value = res.ip; HP.toast('Detected ' + res.ip, 'ok'); }
+      else HP.toast('Could not detect an address', 'error');
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  document.getElementById('test-npm').addEventListener('click', async function () {
+    var btn = this;
+    var box = document.getElementById('test-result');
+    btn.disabled = true;
+    box.innerHTML = '<div class="alert alert-info mb0">Contacting NPMplus...</div>';
+    try {
+      var res = await HP.api('/settings/npmplus/test', {
+        body: {
+          npmplus_url: document.getElementById('npmplus_url').value,
+          npmplus_email: document.getElementById('npmplus_email').value,
+          npmplus_password: document.getElementById('npmplus_password').value,
+          npmplus_insecure: document.getElementById('npmplus_insecure').checked
+        }
+      });
+      box.innerHTML = res.ok
+        ? '<div class="alert alert-ok mb0">Connected to ' + HP.escapeHtml(res.url) + ' &middot; ' + res.proxyHosts + ' proxy host(s) visible.</div>'
+        : '<div class="alert alert-error mb0">' + HP.escapeHtml(res.error) + '</div>';
+    } catch (err) {
+      box.innerHTML = '<div class="alert alert-error mb0">' + HP.escapeHtml(err.message) + '</div>';
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('load-hosts').addEventListener('click', async function () {
+    var box = document.getElementById('hosts-list');
+    box.textContent = 'Loading...';
+    try {
+      var data = await fetch('/api/npmplus/proxy-hosts', { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      if (data.error) throw new Error(data.error);
+      if (!data.hosts.length) { box.textContent = 'NPMplus has no proxy hosts.'; return; }
+      box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Domains</th><th>Forwards to</th><th>SSL</th></tr></thead><tbody>' +
+        data.hosts.map(function (h) {
+          return '<tr><td>' + HP.escapeHtml(h.domains.join(', ')) + '</td><td class="mono small">' + HP.escapeHtml(h.forward) + '</td><td>' +
+            (h.ssl ? '<span class="pill pill-ssl">yes</span>' : '<span class="pill">no</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    } catch (err) {
+      box.innerHTML = '<div class="alert alert-error mb0">' + HP.escapeHtml(err.message) + '</div>';
+    }
+  });
+</script>
+<%- include('partials/foot') %>

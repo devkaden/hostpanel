@@ -1,0 +1,177 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap wrap-narrow">
+  <div class="page-head">
+    <div>
+      <h1>New site</h1>
+      <p class="sub">HostPanel creates a container, a data directory and (optionally) the NPMplus proxy host.</p>
+    </div>
+  </div>
+
+  <% if (errors && errors.length) { %>
+    <div class="alert alert-error">
+      <strong>Could not create the site:</strong>
+      <ul><% errors.forEach(function (e) { %><li><%= e %></li><% }) %></ul>
+    </div>
+  <% } %>
+
+  <form method="post" action="/sites" id="new-site-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+    <div class="card">
+      <h2>Basics</h2>
+
+      <div class="field">
+        <label for="type">Site type</label>
+        <select id="type" name="type" onchange="updateType()">
+          <% Object.keys(config.siteTypes).forEach(function (key) { %>
+            <option value="<%= key %>" <%= form.type === key ? 'selected' : '' %>><%= config.siteTypes[key].label %></option>
+          <% }) %>
+        </select>
+        <div class="hint" id="type-hint"></div>
+      </div>
+
+      <div class="field">
+        <label for="name">Site name</label>
+        <input id="name" name="name" type="text" value="<%= form.name || '' %>" placeholder="my-app" pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]" required>
+        <div class="hint">Lowercase letters, digits and hyphens. Used for the container name and the data directory.</div>
+      </div>
+
+      <div class="field">
+        <label for="domain">Primary domain</label>
+        <input id="domain" name="domain" type="text" value="<%= form.domain || '' %>" placeholder="app.example.com">
+        <div class="hint">Leave blank to reach the site on its host port only. The DNS record must already point at NPMplus.</div>
+      </div>
+
+      <div class="field">
+        <label for="extra_domains">Additional domains</label>
+        <input id="extra_domains" name="extra_domains" type="text" value="<%= form.extra_domains || '' %>" placeholder="www.example.com, example.com">
+        <div class="hint">Comma separated. Included on the same proxy host and certificate.</div>
+      </div>
+
+      <% if (owners && owners.length) { %>
+        <div class="field">
+          <label for="owner_id">Owner</label>
+          <select id="owner_id" name="owner_id">
+            <% owners.forEach(function (o) { %>
+              <option value="<%= o.id %>" <%= String(form.owner_id) === String(o.id) ? 'selected' : '' %>><%= o.username %></option>
+            <% }) %>
+          </select>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="card" id="runtime-card">
+      <h2>Runtime</h2>
+
+      <div class="field" data-for="php wordpress">
+        <label for="php_version">PHP version</label>
+        <select id="php_version" name="runtime_version">
+          <% config.phpVersions.forEach(function (v) { %>
+            <option value="<%= v %>" <%= form.runtime_version === v ? 'selected' : '' %>><%= v %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="field" data-for="node">
+        <label for="node_version">Node.js version</label>
+        <select id="node_version" name="node_runtime_version">
+          <% config.nodeVersions.forEach(function (v) { %>
+            <option value="<%= v %>"><%= v %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="field-row" data-for="node">
+        <div class="field">
+          <label for="install_command">Install command</label>
+          <input id="install_command" name="install_command" type="text" value="<%= form.install_command || 'npm install --omit=dev' %>">
+          <div class="hint">Runs once inside the container after the files are in place.</div>
+        </div>
+        <div class="field">
+          <label for="start_command">Start command</label>
+          <input id="start_command" name="start_command" type="text" value="<%= form.start_command || 'npm start' %>">
+          <div class="hint">PID 1 of the container.</div>
+        </div>
+      </div>
+
+      <div class="field" data-for="node">
+        <label for="app_port">App listen port</label>
+        <input id="app_port" name="app_port" type="number" min="1" max="65535" value="<%= form.app_port || 3000 %>">
+        <div class="hint">The port your app binds inside the container. <code class="inline">PORT</code> is set to this for you.</div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="memory_mb">Memory limit (MB)</label>
+          <input id="memory_mb" name="memory_mb" type="number" min="0" step="64" value="<%= form.memory_mb || 0 %>">
+          <div class="hint">0 = unlimited.</div>
+        </div>
+        <div class="field">
+          <label for="cpu_limit">CPU limit (cores)</label>
+          <input id="cpu_limit" name="cpu_limit" type="number" min="0" step="0.25" value="<%= form.cpu_limit || 0 %>">
+          <div class="hint">0 = unlimited.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="env_json">Environment variables (JSON)</label>
+        <textarea id="env_json" name="env_json" spellcheck="false" placeholder='{ "API_KEY": "abc123" }'><%= form.env_json || '' %></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Reverse proxy</h2>
+      <% if (npmplusOn) { %>
+        <div class="check">
+          <input type="checkbox" id="setup_proxy" name="setup_proxy" checked>
+          <div>
+            <label for="setup_proxy">Create the NPMplus proxy host and request a Let's Encrypt certificate</label>
+            <div class="hint">Needs a domain above, and DNS already pointing at NPMplus. You can also do this later from the site page.</div>
+          </div>
+        </div>
+      <% } else { %>
+        <div class="alert alert-warn mb0">
+          NPMplus integration is off, so no proxy host will be created. The site will still be reachable on its host port.
+          <% if (user.role === 'admin') { %> Configure it in <a href="/settings">Settings</a>.<% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Create site</button>
+      <a class="btn" href="/">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+  var HINTS = {
+    static: 'nginx serving your files, with SPA-friendly try_files and gzip already configured.',
+    php: 'Apache + PHP-FPM in one container, mod_rewrite on, php.ini editable from the file manager.',
+    wordpress: 'WordPress plus a dedicated MariaDB container. The database credentials are generated for you.',
+    node: 'Your app runs from /app. Install and start commands run inside the container.'
+  };
+
+  function updateType() {
+    var type = document.getElementById('type').value;
+    document.getElementById('type-hint').textContent = HINTS[type] || '';
+    document.querySelectorAll('[data-for]').forEach(function (el) {
+      var applies = el.getAttribute('data-for').split(' ').indexOf(type) !== -1;
+      el.style.display = applies ? '' : 'none';
+      el.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = !applies; });
+    });
+    // Node uses its own version select; keep a single runtime_version field on submit.
+    var nodeSel = document.getElementById('node_version');
+    var phpSel = document.getElementById('php_version');
+    if (nodeSel) nodeSel.name = (type === 'node') ? 'runtime_version' : 'node_runtime_version';
+    if (phpSel) phpSel.name = (type === 'php' || type === 'wordpress') ? 'runtime_version' : 'php_runtime_version';
+  }
+
+  document.getElementById('name').addEventListener('input', function (e) {
+    e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+  });
+
+  updateType();
+</script>
+<%- include('partials/foot') %>

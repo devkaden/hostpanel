@@ -1,0 +1,135 @@
+<%- include('partials/head') %>
+<link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1><%= isHostShell ? 'Host shell' : site.name + ' · shell' %></h1>
+      <p class="sub">
+        <% if (isHostShell) { %>
+          A real login shell on the panel host. Everything you type here runs as the panel's user.
+        <% } else { %>
+          Connected to <code class="inline"><%= containerName %></code>.
+          <% if (site.type === 'wordpress') { %>
+            <a href="/sites/<%= site.id %>/terminal?target=<%= target === 'db' ? 'app' : 'db' %>">Switch to the <%= target === 'db' ? 'app' : 'database' %> container</a>
+          <% } %>
+        <% } %>
+      </p>
+    </div>
+    <div class="page-actions">
+      <span class="pill" id="conn-pill"><span class="dot"></span>connecting</span>
+      <button class="btn" id="reconnect">Reconnect</button>
+      <% if (!isHostShell) { %><a class="btn" href="/sites/<%= site.id %>">Back to site</a><% } %>
+    </div>
+  </div>
+
+  <% if (!isHostShell) { %><%- include('partials/site-tabs') %><% } %>
+
+  <% if (isHostShell && typeof hostShellAvailable !== 'undefined' && !hostShellAvailable) { %>
+    <div class="alert alert-warn">
+      The host shell needs the optional <code class="inline">node-pty</code> package, which is not installed
+      (or the host shell is switched off in Settings). Install it on the panel host with
+      <code class="inline">npm install node-pty</code> and restart the panel. Container shells work either way.
+    </div>
+  <% } %>
+
+  <div class="term-shell"><div id="terminal"></div></div>
+  <p class="muted small mt">Tip: the session ends when you close this page. Ctrl+C, arrow keys, tab completion and full-screen programs all work.</p>
+</div>
+
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit/lib/addon-fit.js"></script>
+<script>
+  // xterm is normally served from node_modules so the panel works offline.
+  // If that install is missing, fall back to a CDN copy before giving up.
+  (function () {
+    if (window.Terminal && window.FitAddon) return;
+    document.write(
+      '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">' +
+      '<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></scr' + 'ipt>' +
+      '<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></scr' + 'ipt>'
+    );
+  })();
+</script>
+<script>
+  var IS_HOST = <%= isHostShell ? 'true' : 'false' %>;
+  var QUERY = IS_HOST ? 'host=1' : ('site=<%= site ? site.id : 0 %>&target=<%= target %>');
+  var term, fit, ws;
+
+  function setPill(text, cls) {
+    var p = document.getElementById('conn-pill');
+    p.className = 'pill ' + (cls || '');
+    p.innerHTML = '<span class="dot"></span>' + text;
+  }
+
+  function connect() {
+    if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+      setPill('xterm.js failed to load', 'pill-error');
+      document.getElementById('terminal').innerHTML =
+        '<p style="color:#8d97a8;padding:1rem;font-family:sans-serif">' +
+        'The terminal library could not be loaded. On the panel host, run ' +
+        '<code>npm install</code> in the app directory and restart the service.</p>';
+      return;
+    }
+    if (ws) { try { ws.close(); } catch (e) {} }
+
+    if (!term) {
+      term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
+        fontSize: 13,
+        scrollback: 5000,
+        theme: {
+          background: '#000000', foreground: '#d4dae6', cursor: '#4f8cff',
+          selectionBackground: '#4f8cff40'
+        }
+      });
+      fit = new FitAddon.FitAddon();
+      term.loadAddon(fit);
+      term.open(document.getElementById('terminal'));
+      fit.fit();
+      window.addEventListener('resize', function () {
+        try { fit.fit(); sendResize(); } catch (e) {}
+      });
+    }
+
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws/terminal?' + QUERY);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function () {
+      setPill('connected', 'pill-running');
+      sendResize();
+      term.focus();
+    };
+    ws.onmessage = function (ev) {
+      if (typeof ev.data === 'string') term.write(ev.data);
+      else term.write(new Uint8Array(ev.data));
+    };
+    ws.onclose = function () { setPill('disconnected', 'pill-error'); };
+    ws.onerror = function () { setPill('error', 'pill-error'); };
+
+    term.onData(function (data) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
+    });
+  }
+
+  function sendResize() {
+    if (ws && ws.readyState === WebSocket.OPEN && term) {
+      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    }
+  }
+
+  document.getElementById('reconnect').addEventListener('click', function () {
+    setPill('connecting');
+    connect();
+  });
+
+  // Keep the socket alive through idle proxies.
+  setInterval(function () {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+  }, 25000);
+
+  connect();
+</script>
+<%- include('partials/foot') %>

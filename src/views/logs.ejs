@@ -1,0 +1,114 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1><%= site.name %> &middot; logs</h1>
+      <p class="sub">Container output and the site's own access/error logs.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
+    </div>
+  </div>
+
+  <%- include('partials/site-tabs') %>
+
+  <div class="card card-tight">
+    <div class="card-head mb0" style="margin-bottom:0">
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <select id="source" style="width:auto;min-width:260px">
+          <% sources.forEach(function (s) { %>
+            <option value="<%= s.id %>" <%= selected === s.id ? 'selected' : '' %>><%= s.label %></option>
+          <% }) %>
+        </select>
+        <select id="tail" style="width:auto">
+          <option value="200">last 200 lines</option>
+          <option value="400" selected>last 400 lines</option>
+          <option value="1000">last 1000 lines</option>
+          <option value="5000">last 5000 lines</option>
+        </select>
+        <button class="btn btn-sm" id="refresh">Refresh</button>
+        <label class="check mb0" style="margin:0;align-items:center">
+          <input type="checkbox" id="follow" style="width:auto">
+          <span style="color:var(--text);font-size:.88rem">Follow</span>
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-sm" id="copy-log">Copy</button>
+        <button class="btn btn-sm btn-danger" id="clear-log">Clear file</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="console console-tall" id="log-output">Loading...</div>
+</div>
+
+<script>
+  var SITE_ID = <%= site.id %>;
+  var es = null;
+
+  function sourceEl() { return document.getElementById('source'); }
+  function out() { return document.getElementById('log-output'); }
+
+  async function loadLog() {
+    stopFollow();
+    var source = sourceEl().value;
+    var tail = document.getElementById('tail').value;
+    out().textContent = 'Loading...';
+    try {
+      var data = await fetch('/api/sites/' + SITE_ID + '/logs?source=' + encodeURIComponent(source) + '&tail=' + tail,
+        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      if (data.error) throw new Error(data.error);
+      out().textContent = data.text || '(empty)';
+      out().scrollTop = out().scrollHeight;
+    } catch (err) {
+      out().textContent = 'Could not read the log: ' + err.message;
+    }
+  }
+
+  function startFollow() {
+    var source = sourceEl().value;
+    if (source !== 'container' && source !== 'database') {
+      HP.toast('Follow is only available for container output', 'error');
+      document.getElementById('follow').checked = false;
+      return;
+    }
+    stopFollow();
+    out().textContent = '';
+    es = new EventSource('/sites/' + SITE_ID + '/logs/stream?source=' + encodeURIComponent(source));
+    es.onmessage = function (ev) {
+      try {
+        out().textContent += JSON.parse(ev.data) + '\n';
+        if (out().textContent.length > 400000) out().textContent = out().textContent.slice(-300000);
+        out().scrollTop = out().scrollHeight;
+      } catch (_) { /* ignore */ }
+    };
+    es.addEventListener('error', function () { /* SSE retries */ });
+  }
+
+  function stopFollow() { if (es) { es.close(); es = null; } }
+
+  document.getElementById('refresh').addEventListener('click', loadLog);
+  sourceEl().addEventListener('change', function () {
+    document.getElementById('follow').checked = false;
+    loadLog();
+  });
+  document.getElementById('tail').addEventListener('change', loadLog);
+  document.getElementById('follow').addEventListener('change', function (e) {
+    if (e.target.checked) startFollow(); else { stopFollow(); loadLog(); }
+  });
+  document.getElementById('copy-log').addEventListener('click', function () {
+    HP.copy(out().textContent, 'Log');
+  });
+  document.getElementById('clear-log').addEventListener('click', async function () {
+    var source = sourceEl().value;
+    if (!/\.log$/.test(source)) { HP.toast('Only file-backed logs can be cleared', 'error'); return; }
+    if (!confirm('Truncate ' + source + '?')) return;
+    try { await HP.api('/api/sites/' + SITE_ID + '/logs/clear', { body: { source: source } }); HP.toast('Cleared', 'ok'); loadLog(); }
+    catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  window.addEventListener('beforeunload', stopFollow);
+  loadLog();
+</script>
+<%- include('partials/foot') %>

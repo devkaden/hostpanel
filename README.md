@@ -1,0 +1,247 @@
+# HostPanel
+
+A self-hosted web hosting control panel in the spirit of CloudPanel, built for a
+homelab that already runs **NPMplus**. Every site is its own Docker container;
+the panel creates it, publishes it on a host port, and asks NPMplus to reverse
+proxy your domain at that port and issue the Let's Encrypt certificate.
+
+**Site types:** static/HTML, PHP, WordPress (with its own MariaDB), Node.js.
+
+**Included:** multi-user logins with roles, a file manager with uploads and an
+inline editor, a browser shell into any container, live logs, per-site cron, and
+full NPMplus proxy + SSL automation.
+
+---
+
+## Install
+
+On a fresh Debian 12/13 (or Ubuntu 22.04+) LXC or VM:
+
+```bash
+git clone <your-repo-url> hostpanel
+cd hostpanel
+sudo ./install.sh
+```
+
+The installer sets up Node.js 22, Docker Engine, the panel and a systemd unit,
+then prints the generated admin password (also written to
+`/opt/hostpanel/data/initial-admin-password.txt`). Open
+`http://<vm-ip>:8890`, sign in, and change the password when prompted.
+
+> **Proxmox LXC note:** running Docker inside an unprivileged container needs
+> `nesting=1` and `keyctl=1` on the container. In the Proxmox UI that is
+> Options → Features. A VM avoids the issue entirely and is the safer choice if
+> you have the RAM.
+
+### Connect NPMplus
+
+Go to **Settings** and fill in:
+
+| Field | Value |
+|---|---|
+| NPMplus URL | e.g. `https://npm.kjserver.net:81` — the admin UI, no trailing slash |
+| Admin email | the NPMplus login you use |
+| Admin password | that login's password |
+| Let's Encrypt email | where expiry notices go |
+| Host IP | the address NPMplus should forward traffic to |
+
+Press **Test connection**. It authenticates against `POST /api/tokens` and lists
+your proxy hosts back, so a green result means the whole integration works.
+
+**Host IP** is the one people get wrong. It must be an address the NPMplus host
+can reach this panel's host on. If NPMplus runs on the same machine, the LAN IP
+is right (not `127.0.0.1`, since NPMplus is itself in a container). The Detect
+button guesses it from the network interfaces.
+
+Tick **Manage reverse proxy hosts automatically** and creating a site with a
+domain will, in one step: create the container, create the NPMplus proxy host
+pointing at `http://<host-ip>:<site-port>`, request a certificate for the
+domains, and re-attach it with SSL forced and websockets allowed.
+
+---
+
+## How it fits together
+
+```
+     internet
+        │
+        ▼
+   ┌─────────┐   http://<host-ip>:21000   ┌──────────────────┐
+   │ NPMplus │ ─────────────────────────▶ │ hp-myapp         │  ← Docker
+   │  :443   │   proxy host + LE cert     │ nginx/php/node   │
+   └─────────┘                            └──────────────────┘
+        ▲                                          ▲
+        │ REST API (tokens, proxy-hosts, certs)    │ Docker socket
+        └────────────── HostPanel :8890 ───────────┘
+```
+
+Each site gets:
+
+```
+/opt/hostpanel/data/sites/<name>/
+  app/    ← your files (the container's web root or /app)
+  conf/   ← nginx-site.conf or php-custom.ini, editable, never overwritten
+  logs/   ← access.log / error.log from inside the container
+  db/     ← MariaDB data, WordPress only (hidden from the file manager)
+```
+
+Host ports are allocated from 21000–21999. The panel keeps state in
+`/opt/hostpanel/data/hostpanel.db` (SQLite).
+
+### What each site type runs
+
+| Type | Image | Notes |
+|---|---|---|
+| Static | `nginx:alpine` | SPA-friendly `try_files`, gzip, cache headers preconfigured |
+| PHP | `php:8.4/8.3/8.2/8.1-apache` | `mod_rewrite` on, `php-custom.ini` editable |
+| WordPress | `wordpress:php8.3-apache` + `mariadb:11` | DB credentials generated; HTTPS-behind-proxy handled in `WORDPRESS_CONFIG_EXTRA` |
+| Node.js | `node:24/22/20-bookworm-slim` | Your install and start commands; `PORT` injected |
+
+Node dependency installs run in a throwaway container sharing the same `/app`
+mount, so an app that crashes on start can still have its dependencies
+installed.
+
+---
+
+## Using it
+
+**Creating a site.** Name, type, domain, done. Watch the build output stream
+live on the site page. Without a domain the site is still reachable at
+`http://<host-ip>:<port>` for testing.
+
+**Files.** Browse, drag-and-drop upload, edit text files in place (Ctrl+S
+saves), extract zips, download a folder as a zip, rename, chmod, bulk delete.
+Paths are resolved against the site root and symlink escapes are rejected.
+
+**Shell.** A real terminal into the container — `docker exec` behind a
+websocket, with resize, full-screen programs and tab completion. WordPress
+sites can also open a shell in the database container.
+
+The **host shell** (admins only) is a login shell on the panel host. It needs
+the optional `node-pty` package; if it did not build during install, container
+shells still work. Turn it off entirely in Settings.
+
+**Logs.** Container stdout/stderr, plus the nginx or Apache access and error
+logs. "Follow" streams new lines live.
+
+**Cron.** Five-field cron expressions in UTC. Jobs run with `sh -lc` inside the
+site container on the panel's own scheduler — no host crontab is touched. Run
+any job manually and see its output immediately.
+
+For WordPress, disable the built-in pseudo-cron in `wp-config.php`:
+
+```php
+define('DISABLE_WP_CRON', true);
+```
+
+then schedule `php /var/www/html/wp-cron.php` every 5 minutes.
+
+**Users.** Admins see and manage everything. Standard users only see the sites
+they own, with an optional site limit. New and reset passwords must be changed
+at first login, and resetting a password ends that user's sessions immediately.
+
+**Settings that need a rebuild.** Domain and notes apply immediately. Runtime
+version, ports, environment variables and resource limits change the container
+definition, so hit **Rebuild** after saving. Rebuild recreates the container and
+keeps every file.
+
+---
+
+## Security notes, honestly
+
+**The panel runs as root.** It needs the Docker socket, and it chowns site files
+to the uids the site containers run as. Docker socket access is already
+equivalent to root on the host, so a separate service user would give the
+appearance of isolation without the substance. What this means in practice:
+
+- Put the panel on a LAN-only port, or behind NPMplus with its own domain and
+  an access list. Do not expose `:8890` to the internet.
+- The 21000–21999 site ports should be reachable from NPMplus and nothing else.
+  If NPMplus is on the same host, set `PUBLISH_ADDRESS` in `.env` to the LAN IP
+  or `127.0.0.1` so the ports are not bound on every interface.
+- Only give admin to people you would give root to. A standard user is confined
+  to their own sites, but a shell inside a container is still a shell.
+
+Included by default: bcrypt password hashing (cost 12), CSRF tokens on every
+mutating request, login throttling after 8 failed attempts, session
+invalidation on disable or password reset, path-traversal and zip-slip guards
+in the file manager, and an audit log of every action.
+
+If you put the panel itself behind NPMplus, set `SECURE_COOKIES=true` in
+`.env`. Websockets must be allowed on that proxy host for the terminal to work.
+
+---
+
+## Operating it
+
+```bash
+systemctl status hostpanel
+systemctl restart hostpanel
+journalctl -u hostpanel -f
+```
+
+Locked out? On the host:
+
+```bash
+cd /opt/hostpanel/app
+npm run reset-admin            # resets "admin"
+npm run reset-admin -- kaden   # resets that user, creating it if needed
+```
+
+Check the code parses before restarting after a manual edit:
+
+```bash
+npm run check
+```
+
+**Backups.** Everything that matters is `/opt/hostpanel/data` — the SQLite
+database and every site directory. For WordPress, stop the site first or take a
+`mariadb-dump` from its shell rather than copying `db/` live.
+
+**Updating.** Pull, then re-run `./install.sh`; it rsyncs the app, keeps your
+`.env` and data, reinstalls dependencies and restarts the service.
+
+---
+
+## Configuration reference
+
+`/opt/hostpanel/app/.env` — restart the service after editing.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `8890` | Panel HTTP port |
+| `BIND_ADDRESS` | `0.0.0.0` | Interface the panel listens on |
+| `SESSION_SECRET` | generated | Signs session cookies |
+| `SESSION_HOURS` | `12` | Session lifetime |
+| `SECURE_COOKIES` | `false` | Set `true` when the panel is served over HTTPS |
+| `HOSTPANEL_DATA` | `/opt/hostpanel/data` | Database and site directories |
+| `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker endpoint |
+| `PORT_RANGE_START` / `_END` | `21000` / `21999` | Host ports for sites |
+| `PUBLISH_ADDRESS` | `0.0.0.0` | Interface site containers publish on |
+| `HOST_IP` | auto-detected | Address NPMplus forwards to |
+| `MAX_UPLOAD_MB` | `512` | Largest single upload |
+
+---
+
+## Troubleshooting
+
+**"Docker is not reachable"** — `systemctl status docker`. In an LXC, check
+nesting is enabled.
+
+**Certificate request fails** — the domain's DNS must already resolve to
+NPMplus and port 80 must reach it, because HTTP-01 validation happens there.
+The proxy host is still created and the site works over HTTP; use **Re-sync
+proxy + SSL** once DNS has propagated.
+
+**"Host IP is not set"** — fill it in under Settings. See the table above.
+
+**Site shows nginx's default page or a 502** — check the container is running
+on the site page, then read the container log. For Node, confirm the app binds
+`0.0.0.0` on `process.env.PORT` rather than `localhost`.
+
+**WordPress redirect loop** — usually a stale `WP_HOME`/`WP_SITEURL`. The panel
+sets both from the domain at container creation, so set the domain first and
+then rebuild.
+
+**Terminal won't connect** — if the panel is behind a proxy, that proxy must
+allow websocket upgrades. In NPMplus that is the "Websockets Support" toggle.

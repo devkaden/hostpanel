@@ -1,0 +1,7 @@
+<div class="tabs">
+  <a href="/sites/<%= site.id %>" class="<%= currentPath === '/sites/' + site.id ? 'active' : '' %>">Overview</a>
+  <a href="/sites/<%= site.id %>/files" class="<%= currentPath.endsWith('/files') ? 'active' : '' %>">Files</a>
+  <a href="/sites/<%= site.id %>/logs" class="<%= currentPath.endsWith('/logs') ? 'active' : '' %>">Logs</a>
+  <a href="/sites/<%= site.id %>/terminal" class="<%= currentPath.endsWith('/terminal') ? 'active' : '' %>">Shell</a>
+  <a href="/sites/<%= site.id %>/cron" class="<%= currentPath.endsWith('/cron') ? 'active' : '' %>">Cron</a>
+</div>

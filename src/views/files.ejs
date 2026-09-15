@@ -1,0 +1,352 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1><%= site.name %> &middot; files</h1>
+      <p class="sub"><code class="inline"><%= dirs.root %></code></p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" onclick="HP.openModal('mkdir-modal')">New folder</button>
+      <button class="btn" onclick="HP.openModal('newfile-modal')">New file</button>
+      <button class="btn" id="upload-btn">Upload</button>
+      <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
+    </div>
+  </div>
+
+  <%- include('partials/site-tabs') %>
+
+  <div class="crumbs" id="crumbs"></div>
+
+  <div class="dropzone" id="dropzone">
+    Drop files here to upload into <strong id="dz-path">this folder</strong>, or click to choose (max <%= maxUploadMb %> MB per file)
+    <input type="file" id="file-input" multiple style="display:none">
+  </div>
+
+  <div class="card" style="margin-top:1rem;padding:0;overflow:hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px"><input type="checkbox" id="check-all" style="width:auto"></th>
+            <th>Name</th>
+            <th style="width:110px">Size</th>
+            <th style="width:150px">Modified</th>
+            <th style="width:80px">Mode</th>
+            <th style="width:230px" class="right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="file-rows">
+          <tr><td colspan="6" class="muted" style="padding:1.5rem">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="btn-row mt" id="bulk-actions" style="display:none">
+    <span class="muted small" id="bulk-count"></span>
+    <button class="btn btn-danger btn-sm" id="bulk-delete">Delete selected</button>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- modals -->
+<div class="modal-backdrop" id="mkdir-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>New folder</h3><button class="btn btn-sm btn-ghost" data-close-modal="mkdir-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="mkdir-name">Folder name</label><input id="mkdir-name" type="text" autocomplete="off"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="mkdir-modal">Cancel</button>
+      <button class="btn btn-primary" id="mkdir-go">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="newfile-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>New file</h3><button class="btn btn-sm btn-ghost" data-close-modal="newfile-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="newfile-name">File name</label><input id="newfile-name" type="text" autocomplete="off" placeholder="index.html"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="newfile-modal">Cancel</button>
+      <button class="btn btn-primary" id="newfile-go">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="editor-modal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3 id="editor-title">Edit</h3>
+      <button class="btn btn-sm btn-ghost" data-close-modal="editor-modal">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:.6rem">
+      <textarea id="editor-area" class="editor-area" spellcheck="false" wrap="off"></textarea>
+    </div>
+    <div class="modal-foot">
+      <span class="muted small" id="editor-status"></span>
+      <div class="spacer"></div>
+      <button class="btn" data-close-modal="editor-modal">Close</button>
+      <button class="btn btn-primary" id="editor-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="rename-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Rename</h3><button class="btn btn-sm btn-ghost" data-close-modal="rename-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="rename-name">New name</label><input id="rename-name" type="text" autocomplete="off"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="rename-modal">Cancel</button>
+      <button class="btn btn-primary" id="rename-go">Rename</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var SITE_ID = <%= site.id %>;
+  var current = <%- JSON.stringify(listing.path || '') %>;
+  var renameTarget = null;
+  var editTarget = null;
+
+  function api(path, opts) { return HP.api('/api/sites/' + SITE_ID + '/files' + path, opts); }
+
+  async function load(path) {
+    current = path || '';
+    document.getElementById('dz-path').textContent = current ? '/' + current : 'the site root';
+    history.replaceState({}, '', '/sites/' + SITE_ID + '/files?path=' + encodeURIComponent(current));
+    var data;
+    try {
+      data = await fetch('/api/sites/' + SITE_ID + '/files?path=' + encodeURIComponent(current),
+        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+    } catch (err) {
+      HP.toast('Could not list that folder', 'error');
+      return;
+    }
+    if (data.error) { HP.toast(data.error, 'error'); return; }
+    renderCrumbs(data.path);
+    renderRows(data);
+  }
+
+  function renderCrumbs(path) {
+    var parts = path ? path.split('/') : [];
+    var html = '<a href="#" data-path="">' + <%- JSON.stringify(site.name) %> + '</a>';
+    var acc = '';
+    parts.forEach(function (p) {
+      acc = acc ? acc + '/' + p : p;
+      html += '<span class="sep">/</span><a href="#" data-path="' + HP.escapeHtml(acc) + '">' + HP.escapeHtml(p) + '</a>';
+    });
+    var el = document.getElementById('crumbs');
+    el.innerHTML = html;
+    el.querySelectorAll('a').forEach(function (a) {
+      a.addEventListener('click', function (e) { e.preventDefault(); load(a.getAttribute('data-path')); });
+    });
+  }
+
+  function renderRows(data) {
+    var tbody = document.getElementById('file-rows');
+    var rows = '';
+
+    if (data.parent !== null && data.parent !== undefined) {
+      rows += '<tr><td></td><td colspan="5"><a href="#" class="nav-up" data-path="' + HP.escapeHtml(data.parent) + '">&larr; up one level</a></td></tr>';
+    }
+
+    if (!data.items.length) {
+      rows += '<tr><td colspan="6" class="muted" style="padding:1.5rem">This folder is empty.</td></tr>';
+    }
+
+    data.items.forEach(function (item) {
+      var isDir = item.type === 'dir';
+      rows += '<tr>' +
+        '<td><input type="checkbox" class="row-check" data-path="' + HP.escapeHtml(item.path) + '" style="width:auto"></td>' +
+        '<td><div class="file-name"><span class="file-icon ' + (isDir ? 'dir' : '') + '">' + (isDir ? '&#128193;' : '&#128196;') + '</span>' +
+          (isDir
+            ? '<a href="#" class="nav-dir" data-path="' + HP.escapeHtml(item.path) + '">' + HP.escapeHtml(item.name) + '</a>'
+            : HP.escapeHtml(item.name)) +
+          (item.symlink ? ' <span class="pill">link</span>' : '') +
+        '</div></td>' +
+        '<td class="muted small">' + (isDir ? '-' : HP.bytes(item.size)) + '</td>' +
+        '<td class="muted small nowrap">' + HP.relTime(item.mtime) + '</td>' +
+        '<td class="muted small mono">' + item.mode + '</td>' +
+        '<td class="right"><div class="file-actions">' +
+          (item.editable ? '<button class="btn btn-sm act-edit" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Edit</button>' : '') +
+          (/\.zip$/i.test(item.name) ? '<button class="btn btn-sm act-extract" data-path="' + HP.escapeHtml(item.path) + '">Extract</button>' : '') +
+          '<a class="btn btn-sm" href="/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path) + (isDir ? '&zip=1' : '') + '">' + (isDir ? 'Zip' : 'Get') + '</a>' +
+          '<button class="btn btn-sm act-rename" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Rename</button>' +
+          '<button class="btn btn-sm btn-danger act-delete" data-path="' + HP.escapeHtml(item.path) + '">Del</button>' +
+        '</div></td></tr>';
+    });
+
+    tbody.innerHTML = rows;
+    bindRows();
+    updateBulk();
+  }
+
+  function bindRows() {
+    document.querySelectorAll('.nav-dir, .nav-up').forEach(function (a) {
+      a.addEventListener('click', function (e) { e.preventDefault(); load(a.getAttribute('data-path')); });
+    });
+    document.querySelectorAll('.act-delete').forEach(function (b) {
+      b.addEventListener('click', async function () {
+        if (!confirm('Delete ' + b.getAttribute('data-path') + '? This cannot be undone.')) return;
+        try { await api('/delete', { body: { paths: [b.getAttribute('data-path')] } }); HP.toast('Deleted', 'ok'); load(current); }
+        catch (err) { HP.toast(err.message, 'error'); }
+      });
+    });
+    document.querySelectorAll('.act-rename').forEach(function (b) {
+      b.addEventListener('click', function () {
+        renameTarget = b.getAttribute('data-path');
+        document.getElementById('rename-name').value = b.getAttribute('data-name');
+        HP.openModal('rename-modal');
+      });
+    });
+    document.querySelectorAll('.act-extract').forEach(function (b) {
+      b.addEventListener('click', async function () {
+        b.disabled = true; b.textContent = '...';
+        try { var r = await api('/extract', { body: { path: b.getAttribute('data-path') } }); HP.toast('Extracted ' + r.files + ' files', 'ok'); load(current); }
+        catch (err) { HP.toast(err.message, 'error'); b.disabled = false; b.textContent = 'Extract'; }
+      });
+    });
+    document.querySelectorAll('.act-edit').forEach(function (b) {
+      b.addEventListener('click', function () { openEditor(b.getAttribute('data-path'), b.getAttribute('data-name')); });
+    });
+    document.querySelectorAll('.row-check').forEach(function (c) {
+      c.addEventListener('change', updateBulk);
+    });
+  }
+
+  function selected() {
+    return Array.prototype.slice.call(document.querySelectorAll('.row-check:checked'))
+      .map(function (c) { return c.getAttribute('data-path'); });
+  }
+
+  function updateBulk() {
+    var sel = selected();
+    document.getElementById('bulk-actions').style.display = sel.length ? 'flex' : 'none';
+    document.getElementById('bulk-count').textContent = sel.length + ' selected';
+  }
+
+  document.getElementById('check-all').addEventListener('change', function (e) {
+    document.querySelectorAll('.row-check').forEach(function (c) { c.checked = e.target.checked; });
+    updateBulk();
+  });
+
+  document.getElementById('bulk-delete').addEventListener('click', async function () {
+    var sel = selected();
+    if (!sel.length || !confirm('Delete ' + sel.length + ' item(s)? This cannot be undone.')) return;
+    try { await api('/delete', { body: { paths: sel } }); HP.toast('Deleted ' + sel.length + ' item(s)', 'ok'); load(current); }
+    catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  /* ---------------------------------------------------------- editor */
+  async function openEditor(path, name) {
+    editTarget = path;
+    document.getElementById('editor-title').textContent = path;
+    document.getElementById('editor-area').value = 'Loading...';
+    document.getElementById('editor-status').textContent = '';
+    HP.openModal('editor-modal');
+    try {
+      var data = await fetch('/api/sites/' + SITE_ID + '/files/read?path=' + encodeURIComponent(path),
+        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      if (data.error) throw new Error(data.error);
+      document.getElementById('editor-area').value = data.content;
+      document.getElementById('editor-status').textContent = HP.bytes(data.size);
+    } catch (err) {
+      document.getElementById('editor-area').value = '';
+      HP.toast(err.message, 'error');
+      HP.closeModal('editor-modal');
+    }
+  }
+
+  document.getElementById('editor-save').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await api('/write', { body: { path: editTarget, content: document.getElementById('editor-area').value } });
+      HP.toast('Saved ' + editTarget, 'ok');
+      document.getElementById('editor-status').textContent = 'Saved ' + new Date().toLocaleTimeString();
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+    btn.disabled = false;
+  });
+
+  // Ctrl/Cmd+S inside the editor saves.
+  document.getElementById('editor-area').addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); document.getElementById('editor-save').click(); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      var s = this.selectionStart, en = this.selectionEnd;
+      this.value = this.value.slice(0, s) + '  ' + this.value.slice(en);
+      this.selectionStart = this.selectionEnd = s + 2;
+    }
+  });
+
+  /* ------------------------------------------------------ create/rename */
+  document.getElementById('mkdir-go').addEventListener('click', async function () {
+    try {
+      await api('/mkdir', { body: { path: current, name: document.getElementById('mkdir-name').value } });
+      HP.closeModal('mkdir-modal');
+      document.getElementById('mkdir-name').value = '';
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  document.getElementById('newfile-go').addEventListener('click', async function () {
+    try {
+      await api('/touch', { body: { path: current, name: document.getElementById('newfile-name').value } });
+      HP.closeModal('newfile-modal');
+      document.getElementById('newfile-name').value = '';
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  document.getElementById('rename-go').addEventListener('click', async function () {
+    try {
+      await api('/rename', { body: { path: renameTarget, name: document.getElementById('rename-name').value } });
+      HP.closeModal('rename-modal');
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  /* ---------------------------------------------------------- uploads */
+  var dz = document.getElementById('dropzone');
+  var input = document.getElementById('file-input');
+
+  document.getElementById('upload-btn').addEventListener('click', function () { input.click(); });
+  dz.addEventListener('click', function () { input.click(); });
+  input.addEventListener('change', function () { if (input.files.length) uploadFiles(input.files); });
+
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('hot'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('hot'); });
+  });
+  dz.addEventListener('drop', function (e) {
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+
+  async function uploadFiles(files) {
+    var fd = new FormData();
+    fd.append('path', current);
+    for (var i = 0; i < files.length; i += 1) fd.append('files', files[i]);
+    dz.textContent = 'Uploading ' + files.length + ' file(s)...';
+    try {
+      var res = await api('/upload', { body: fd });
+      HP.toast('Uploaded ' + res.saved.length + ' file(s)', 'ok');
+      load(current);
+    } catch (err) {
+      HP.toast(err.message, 'error');
+    }
+    dz.innerHTML = 'Drop files here to upload into <strong id="dz-path">' + (current ? '/' + HP.escapeHtml(current) : 'the site root') + '</strong>, or click to choose';
+    dz.appendChild(input);
+    input.value = '';
+  }
+
+  load(current);
+</script>
+<%- include('partials/foot') %>

@@ -1,0 +1,178 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1><%= site.name %> &middot; cron</h1>
+      <p class="sub">Jobs run inside this site's container on the panel's schedule. No host crontab is touched.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-primary" onclick="openJob()">+ New job</button>
+      <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
+    </div>
+  </div>
+
+  <%- include('partials/site-tabs') %>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th style="width:150px">Schedule</th>
+            <th>Command</th>
+            <th style="width:130px">Last run</th>
+            <th style="width:90px">Status</th>
+            <th style="width:220px" class="right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!jobs.length) { %>
+            <tr><td colspan="6" class="muted" style="padding:1.6rem">No cron jobs yet.</td></tr>
+          <% } %>
+          <% jobs.forEach(function (j) { %>
+            <tr>
+              <td><%= j.name %><% if (!j.enabled) { %> <span class="pill">paused</span><% } %></td>
+              <td><code class="inline"><%= j.schedule %></code></td>
+              <td class="mono small" style="max-width:320px;overflow:hidden;text-overflow:ellipsis"><%= j.command %></td>
+              <td class="muted small nowrap"><%= j.last_run ? j.last_run + ' UTC' : 'never' %></td>
+              <td>
+                <% if (j.last_exit === null || j.last_exit === undefined) { %>
+                  <span class="pill">-</span>
+                <% } else if (j.last_exit === 0) { %>
+                  <span class="pill pill-running">ok</span>
+                <% } else { %>
+                  <span class="pill pill-error">exit <%= j.last_exit %></span>
+                <% } %>
+              </td>
+              <td class="right">
+                <div class="file-actions">
+                  <button class="btn btn-sm" onclick='runJob(<%= j.id %>)'>Run</button>
+                  <button class="btn btn-sm" onclick='showOutput(<%= j.id %>)'>Output</button>
+                  <button class="btn btn-sm" onclick='openJob(jobById(<%= j.id %>))'>Edit</button>
+                  <button class="btn btn-sm btn-danger" onclick='deleteJob(<%= j.id %>, <%= JSON.stringify(j.name) %>)'>Del</button>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>How the schedule field works</h3>
+    <p class="muted small">Standard five-field cron syntax in UTC: <code class="inline">minute hour day-of-month month day-of-week</code>.
+      The panel checks every 30 seconds, so the finest useful resolution is one minute.</p>
+    <% if (site.type === 'wordpress') { %>
+      <p class="muted small">For WordPress, disable the built-in pseudo-cron by adding
+        <code class="inline">define('DISABLE_WP_CRON', true);</code> to <code class="inline">wp-config.php</code>,
+        then schedule <code class="inline">php /var/www/html/wp-cron.php</code> here every 5 minutes.</p>
+    <% } %>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="job-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="job-modal-title">New cron job</h3><button class="btn btn-sm btn-ghost" data-close-modal="job-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="job-name">Name</label>
+        <input id="job-name" type="text" placeholder="Nightly cleanup">
+      </div>
+      <div class="field">
+        <label for="job-schedule">Schedule</label>
+        <input id="job-schedule" type="text" placeholder="*/5 * * * *" class="mono">
+        <div class="hint" style="display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.45rem">
+          <% presets.forEach(function (p) { %>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('job-schedule').value='<%= p.value %>'"><%= p.label %></button>
+          <% }) %>
+        </div>
+      </div>
+      <div class="field">
+        <label for="job-command">Command</label>
+        <input id="job-command" type="text" class="mono" placeholder="<%= example %>">
+        <div class="hint">Runs with <code class="inline">sh -lc</code> inside the site container.</div>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="job-enabled" checked>
+        <label for="job-enabled">Enabled</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="job-modal">Cancel</button>
+      <button class="btn btn-primary" id="job-save">Save job</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="output-modal">
+  <div class="modal modal-wide">
+    <div class="modal-head"><h3>Last output</h3><button class="btn btn-sm btn-ghost" data-close-modal="output-modal">&times;</button></div>
+    <div class="modal-body"><div class="console console-tall" id="output-body"></div></div>
+    <div class="modal-foot"><button class="btn" data-close-modal="output-modal">Close</button></div>
+  </div>
+</div>
+
+<script>
+  var SITE_ID = <%= site.id %>;
+  var JOBS = <%- JSON.stringify(jobs) %>;
+  var editingId = null;
+
+  function jobById(id) {
+    return JOBS.filter(function (j) { return j.id === id; })[0];
+  }
+
+  function openJob(job) {
+    editingId = job ? job.id : null;
+    document.getElementById('job-modal-title').textContent = job ? 'Edit cron job' : 'New cron job';
+    document.getElementById('job-name').value = job ? job.name : '';
+    document.getElementById('job-schedule').value = job ? job.schedule : '*/5 * * * *';
+    document.getElementById('job-command').value = job ? job.command : '';
+    document.getElementById('job-enabled').checked = job ? !!job.enabled : true;
+    HP.openModal('job-modal');
+  }
+
+  document.getElementById('job-save').addEventListener('click', async function () {
+    var body = {
+      name: document.getElementById('job-name').value || 'Job',
+      schedule: document.getElementById('job-schedule').value,
+      command: document.getElementById('job-command').value,
+      enabled: document.getElementById('job-enabled').checked
+    };
+    var url = '/api/sites/' + SITE_ID + '/cron' + (editingId ? '/' + editingId : '');
+    try {
+      await HP.api(url, { body: body });
+      HP.toast('Saved', 'ok');
+      setTimeout(function () { location.reload(); }, 500);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  async function runJob(id) {
+    HP.toast('Running...', 'ok');
+    try {
+      var res = await HP.api('/api/sites/' + SITE_ID + '/cron/' + id + '/run');
+      if (res.skipped) { HP.toast(res.reason, 'error'); return; }
+      document.getElementById('output-body').textContent =
+        'exit ' + res.exitCode + ' in ' + res.duration + 's\n\n' + (res.output || '(no output)');
+      HP.openModal('output-modal');
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  function showOutput(id) {
+    var job = JOBS.filter(function (j) { return j.id === id; })[0];
+    document.getElementById('output-body').textContent = (job && job.last_output) || '(nothing recorded yet)';
+    HP.openModal('output-modal');
+  }
+
+  async function deleteJob(id, name) {
+    if (!confirm('Delete cron job "' + name + '"?')) return;
+    try {
+      await HP.api('/api/sites/' + SITE_ID + '/cron/' + id + '/delete');
+      HP.toast('Deleted', 'ok');
+      setTimeout(function () { location.reload(); }, 400);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+</script>
+<%- include('partials/foot') %>

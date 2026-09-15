@@ -1,0 +1,104 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+
+  <% if (changed) { %><div class="alert alert-ok">Password updated.</div><% } %>
+
+  <% if (!docker.ok) { %>
+    <div class="alert alert-error">
+      <strong>Docker is not reachable.</strong> <%= docker.error %><br>
+      Sites cannot be created or controlled until the panel can talk to the Docker socket
+      (<code class="inline"><%= process.env.DOCKER_SOCKET || '/var/run/docker.sock' %></code>).
+    </div>
+  <% } %>
+
+  <% if (!npmplusOn && user.role === 'admin') { %>
+    <div class="alert alert-info">
+      NPMplus integration is off. Turn it on in <a href="/settings">Settings</a> and new sites will get
+      their reverse proxy and SSL certificate automatically.
+    </div>
+  <% } %>
+
+  <div class="page-head">
+    <div>
+      <h1>Sites</h1>
+      <p class="sub"><%= counts.total %> site<%= counts.total === 1 ? '' : 's' %> &middot; <%= counts.running %> running<% if (counts.stopped) { %> &middot; <%= counts.stopped %> stopped<% } %><% if (counts.missing) { %> &middot; <%= counts.missing %> missing container<% } %></p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-primary" href="/sites/new">+ New site</a>
+    </div>
+  </div>
+
+  <div class="grid grid-4" style="margin-bottom:1.4rem">
+    <div class="stat"><div class="label">Running</div><div class="value"><%= counts.running %><small> / <%= counts.total %></small></div></div>
+    <div class="stat"><div class="label">Host load</div><div class="value"><%= host.load[0] %><small> / <%= host.cpus %> cpu</small></div></div>
+    <div class="stat"><div class="label">Memory free</div><div class="value" style="font-size:1.15rem"><%= host.memFree %><small> / <%= host.memTotal %></small></div></div>
+    <div class="stat"><div class="label">Uptime</div><div class="value"><%= host.uptime %><small> h</small></div></div>
+  </div>
+
+  <% if (!sites.length) { %>
+    <div class="card empty">
+      <h3>No sites yet</h3>
+      <p>Create your first site and HostPanel will build the container, wire up the reverse proxy and request a certificate.</p>
+      <a class="btn btn-primary mt" href="/sites/new">Create a site</a>
+    </div>
+  <% } else { %>
+    <div class="site-grid">
+      <% sites.forEach(function (s) { %>
+        <div class="site-card" data-site-id="<%= s.id %>">
+          <div class="row1">
+            <div class="name">
+              <span class="type-badge" title="<%= siteTypes[s.type] ? siteTypes[s.type].label : s.type %>"><%= siteTypes[s.type] ? siteTypes[s.type].icon : '?' %></span>
+              <a href="/sites/<%= s.id %>"><%= s.name %></a>
+            </div>
+            <span class="pill pill-<%= s.live.state %>" data-state><span class="dot"></span><%= s.live.state %></span>
+          </div>
+
+          <div class="meta">
+            <% if (s.domains.length) { %>
+              <% s.domains.slice(0, 2).forEach(function (d) { %>
+                <a href="http<%= s.ssl ? 's' : '' %>://<%= d %>" target="_blank" rel="noopener"><%= d %></a>
+              <% }) %>
+              <% if (s.domains.length > 2) { %><span>+<%= s.domains.length - 2 %></span><% } %>
+              <% if (s.ssl) { %><span class="pill pill-ssl">SSL</span><% } %>
+            <% } else { %>
+              <span class="muted">no domain set</span>
+            <% } %>
+          </div>
+
+          <div class="meta">
+            <span>port <%= s.port %></span>
+            <% if (user.role === 'admin') { %><span>&middot; <%= s.owner_name %></span><% } %>
+            <% if (s.runtime_version) { %><span>&middot; v<%= s.runtime_version %></span><% } %>
+          </div>
+
+          <div class="links">
+            <a href="/sites/<%= s.id %>">Overview</a>
+            <a href="/sites/<%= s.id %>/files">Files</a>
+            <a href="/sites/<%= s.id %>/logs">Logs</a>
+            <a href="/sites/<%= s.id %>/terminal">Shell</a>
+            <a href="/sites/<%= s.id %>/cron">Cron</a>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<script>
+  // Keep the status pills fresh without a full page reload.
+  setInterval(async function () {
+    try {
+      const data = await fetch('/api/status', { headers: { Accept: 'application/json' } }).then(r => r.json());
+      (data.sites || []).forEach(function (s) {
+        const card = document.querySelector('[data-site-id="' + s.id + '"]');
+        if (!card) return;
+        const pill = card.querySelector('[data-state]');
+        if (!pill) return;
+        pill.className = 'pill pill-' + s.state;
+        pill.innerHTML = '<span class="dot"></span>' + s.state;
+      });
+    } catch (_) { /* transient */ }
+  }, 10000);
+</script>
+<%- include('partials/foot') %>

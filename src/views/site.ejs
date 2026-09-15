@@ -1,0 +1,381 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+
+  <div class="page-head">
+    <div>
+      <h1>
+        <span class="type-badge"><%= siteTypes[site.type] ? siteTypes[site.type].icon : '?' %></span>
+        <%= site.name %>
+        <span class="pill pill-<%= live.state %>" id="state-pill"><span class="dot"></span><%= live.state %></span>
+      </h1>
+      <p class="sub">
+        <%= siteTypes[site.type] ? siteTypes[site.type].label : site.type %>
+        &middot; host port <%= site.port %>
+        <% if (domains.length) { %>
+          &middot; <% domains.forEach(function (d, i) { %><a href="http<%= site.ssl ? 's' : '' %>://<%= d %>" target="_blank" rel="noopener"><%= d %></a><%= i < domains.length - 1 ? ', ' : '' %><% }) %>
+        <% } %>
+      </p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" data-action="start">Start</button>
+      <button class="btn" data-action="stop">Stop</button>
+      <button class="btn" data-action="restart">Restart</button>
+      <button class="btn" data-action="rebuild" title="Recreate the container from the current settings, keeping your files">Rebuild</button>
+      <% if (site.type === 'node') { %>
+        <button class="btn" data-action="install" title="Re-run the install command inside the container">Install deps</button>
+      <% } %>
+    </div>
+  </div>
+
+  <%- include('partials/site-tabs') %>
+
+  <% if (live.state === 'missing') { %>
+    <div class="alert alert-error">
+      The container for this site does not exist. Use <strong>Rebuild</strong> to recreate it from the current settings.
+    </div>
+  <% } %>
+
+  <div class="card" id="progress-card" style="<%= provisioning ? '' : 'display:none' %>">
+    <div class="card-head">
+      <h2>Build output</h2>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('progress-card').style.display='none'">Hide</button>
+    </div>
+    <div class="console" id="progress-console">Waiting for output...</div>
+  </div>
+
+  <div class="grid grid-2">
+
+    <!-- ------------------------------------------------------------ left -->
+    <div>
+      <div class="card">
+        <h2>Container</h2>
+        <dl class="dl">
+          <dt>Name</dt><dd><code class="inline"><%= containerName %></code></dd>
+          <dt>Image</dt><dd><code class="inline"><%= image %></code></dd>
+          <dt>State</dt><dd><%= live.state %></dd>
+          <% if (dbContainerName) { %>
+            <dt>Database</dt><dd><code class="inline"><%= dbContainerName %></code> &middot; <%= live.dbState %></dd>
+          <% } %>
+          <dt>Published</dt><dd><code class="inline">0.0.0.0:<%= site.port %></code></dd>
+          <dt>CPU</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
+          <dt>Memory</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
+          <dt>Disk (app)</dt><dd><%= disk.human %> in <%= disk.files %> files</dd>
+          <dt>Data dir</dt><dd><code class="inline"><%= dirs.root %></code></dd>
+          <dt>Created</dt><dd><%= site.created_at %> UTC</dd>
+        </dl>
+      </div>
+
+      <% if (site.type === 'wordpress') { %>
+        <div class="card">
+          <h2>Database</h2>
+          <dl class="dl">
+            <dt>Host</dt><dd><code class="inline"><%= dbContainerName %>:3306</code></dd>
+            <dt>Database</dt><dd><code class="inline"><%= site.db_name %></code></dd>
+            <dt>User</dt><dd><code class="inline"><%= site.db_user %></code></dd>
+            <dt>Password</dt>
+            <dd>
+              <span class="copy-field">
+                <input type="password" value="<%= site.db_password %>" id="dbpw" readonly style="max-width:230px">
+                <button class="btn btn-sm" type="button" onclick="document.getElementById('dbpw').type = document.getElementById('dbpw').type === 'password' ? 'text' : 'password'">Show</button>
+                <button class="btn btn-sm" type="button" data-copy="<%= site.db_password %>" data-copy-label="Password">Copy</button>
+              </span>
+            </dd>
+          </dl>
+          <p class="hint muted small">Reach the database from a shell with
+            <code class="inline">mariadb -h <%= dbContainerName %> -u <%= site.db_user %> -p <%= site.db_name %></code>.</p>
+        </div>
+      <% } %>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Reverse proxy (NPMplus)</h2>
+          <% if (site.ssl) { %><span class="pill pill-ssl">SSL active</span><% } %>
+        </div>
+
+        <% if (!npmplusConfigured) { %>
+          <p class="muted small">NPMplus is not configured yet.
+            <% if (user.role === 'admin') { %><a href="/settings">Set it up in Settings</a> to manage proxy hosts from here.<% } %></p>
+        <% } else if (!domains.length) { %>
+          <p class="muted small">Add a domain below, then create the proxy host.</p>
+        <% } else { %>
+          <dl class="dl">
+            <dt>Proxy host</dt>
+            <dd><%= site.npm_proxy_id ? '#' + site.npm_proxy_id : 'not created' %></dd>
+            <dt>Certificate</dt>
+            <dd><%= site.npm_cert_id ? '#' + site.npm_cert_id : (site.ssl ? 'attached' : 'none') %></dd>
+            <% if (proxyHost) { %>
+              <dt>Forwards to</dt>
+              <dd><code class="inline"><%= proxyHost.forward_scheme %>://<%= proxyHost.forward_host %>:<%= proxyHost.forward_port %></code></dd>
+              <dt>Domains</dt>
+              <dd><%= (proxyHost.domain_names || []).join(', ') %></dd>
+            <% } %>
+          </dl>
+          <% if (proxyError) { %><div class="alert alert-warn mt small"><%= proxyError %></div><% } %>
+          <div class="btn-row mt">
+            <button class="btn btn-primary btn-sm" id="proxy-sync">
+              <%= site.npm_proxy_id ? 'Re-sync proxy + SSL' : 'Create proxy + SSL' %>
+            </button>
+            <button class="btn btn-sm" id="proxy-sync-nossl">Sync without SSL</button>
+            <% if (site.npm_proxy_id) { %>
+              <button class="btn btn-danger btn-sm" id="proxy-delete">Remove proxy host</button>
+            <% } %>
+          </div>
+          <p class="hint muted small mt">
+            Point the DNS for <%= domains.join(', ') %> at NPMplus before requesting a certificate,
+            or the HTTP-01 challenge will fail.
+          </p>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- ----------------------------------------------------------- right -->
+    <div>
+      <div class="card">
+        <h2>Settings</h2>
+        <form id="settings-form">
+          <div class="field">
+            <label for="s-domain">Primary domain</label>
+            <input id="s-domain" name="domain" type="text" value="<%= site.domain || '' %>" placeholder="app.example.com">
+          </div>
+          <div class="field">
+            <label for="s-extra">Additional domains</label>
+            <input id="s-extra" name="extra_domains" type="text" value="<%= site.extra_domains || '' %>" placeholder="www.example.com, example.com">
+          </div>
+
+          <% if (site.type === 'php' || site.type === 'wordpress') { %>
+            <div class="field">
+              <label for="s-runtime">PHP version</label>
+              <select id="s-runtime" name="runtime_version">
+                <% (site.type === 'wordpress' ? config.wordpressPhpVersions : config.phpVersions).forEach(function (v) { %>
+                  <option value="<%= v %>" <%= site.runtime_version === v ? 'selected' : '' %>><%= v %></option>
+                <% }) %>
+              </select>
+              <div class="hint">Changing this needs a rebuild.</div>
+            </div>
+          <% } %>
+
+          <% if (site.type === 'node') { %>
+            <div class="field">
+              <label for="s-runtime">Node.js version</label>
+              <select id="s-runtime" name="runtime_version">
+                <% config.nodeVersions.forEach(function (v) { %>
+                  <option value="<%= v %>" <%= site.runtime_version === v ? 'selected' : '' %>><%= v %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="s-install">Install command</label>
+                <input id="s-install" name="install_command" type="text" value="<%= site.install_command %>">
+              </div>
+              <div class="field">
+                <label for="s-start">Start command</label>
+                <input id="s-start" name="start_command" type="text" value="<%= site.start_command %>">
+              </div>
+            </div>
+            <div class="field">
+              <label for="s-appport">App listen port</label>
+              <input id="s-appport" name="app_port" type="number" min="1" max="65535" value="<%= site.app_port %>">
+            </div>
+          <% } %>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="s-mem">Memory limit (MB)</label>
+              <input id="s-mem" name="memory_mb" type="number" min="0" step="64" value="<%= site.memory_mb %>">
+            </div>
+            <div class="field">
+              <label for="s-cpu">CPU limit (cores)</label>
+              <input id="s-cpu" name="cpu_limit" type="number" min="0" step="0.25" value="<%= site.cpu_limit %>">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="s-env">Environment variables (JSON)</label>
+            <textarea id="s-env" name="env_json" spellcheck="false"><%= site.env_json %></textarea>
+          </div>
+
+          <% if (owners && owners.length) { %>
+            <div class="field">
+              <label for="s-owner">Owner</label>
+              <select id="s-owner" name="owner_id">
+                <% owners.forEach(function (o) { %>
+                  <option value="<%= o.id %>" <%= site.owner_id === o.id ? 'selected' : '' %>><%= o.username %></option>
+                <% }) %>
+              </select>
+            </div>
+          <% } %>
+
+          <div class="field">
+            <label for="s-notes">Notes</label>
+            <textarea id="s-notes" name="notes" style="min-height:64px" spellcheck="true"><%= site.notes %></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" type="submit">Save settings</button>
+            <button class="btn" type="button" data-action="rebuild">Rebuild container</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Danger zone</h2>
+        <p class="muted small">Deleting removes the container, the network, the NPMplus proxy host and (optionally) every file in the site directory. This cannot be undone.</p>
+        <button class="btn btn-danger" onclick="HP.openModal('delete-modal')">Delete this site</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------- modal -->
+<div class="modal-backdrop" id="delete-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Delete <%= site.name %></h3>
+      <button class="btn btn-sm btn-ghost" data-close-modal="delete-modal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="small">Type <strong><%= site.name %></strong> to confirm.</p>
+      <div class="field">
+        <input type="text" id="delete-confirm" placeholder="<%= site.name %>" autocomplete="off">
+      </div>
+      <div class="check">
+        <input type="checkbox" id="delete-files" checked>
+        <div>
+          <label for="delete-files">Also delete the site files</label>
+          <div class="hint">Unchecked, <code class="inline"><%= dirs.root %></code> is left on disk.</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="delete-modal">Cancel</button>
+      <button class="btn btn-danger" id="delete-confirm-btn">Delete permanently</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var SITE_ID = <%= site.id %>;
+
+  /* ---------------------------------------------------------- actions */
+  document.querySelectorAll('[data-action]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var action = btn.getAttribute('data-action');
+      var original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Working...';
+      try {
+        var res = await HP.api('/sites/' + SITE_ID + '/action/' + action);
+        if (res.background) {
+          HP.toast(action + ' started', 'ok');
+          showProgress();
+        } else {
+          HP.toast(action + ' done', 'ok');
+          setTimeout(function () { location.reload(); }, 700);
+        }
+      } catch (err) {
+        HP.toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  });
+
+  /* --------------------------------------------------------- settings */
+  document.getElementById('settings-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var form = new FormData(e.target);
+    var payload = {};
+    form.forEach(function (v, k) { payload[k] = v; });
+    try {
+      var res = await HP.api('/sites/' + SITE_ID + '/settings', { body: payload });
+      HP.toast(res.message || 'Saved', 'ok');
+    } catch (err) {
+      HP.toast(err.message, 'error');
+    }
+  });
+
+  /* ------------------------------------------------------------ proxy */
+  function bindProxy(id, body, label) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', async function () {
+      el.disabled = true;
+      var original = el.textContent;
+      el.textContent = 'Talking to NPMplus...';
+      try {
+        var res = await HP.api('/sites/' + SITE_ID + (id === 'proxy-delete' ? '/proxy/delete' : '/proxy'), { body: body });
+        HP.toast(label + ' ok', 'ok');
+        setTimeout(function () { location.reload(); }, 800);
+      } catch (err) {
+        HP.toast(err.message, 'error');
+        el.disabled = false;
+        el.textContent = original;
+      }
+    });
+  }
+  bindProxy('proxy-sync', { ssl: true }, 'Proxy host synced');
+  bindProxy('proxy-sync-nossl', { ssl: false }, 'Proxy host synced');
+  bindProxy('proxy-delete', {}, 'Proxy host removed');
+
+  /* ----------------------------------------------------------- delete */
+  document.getElementById('delete-confirm-btn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var res = await HP.api('/sites/' + SITE_ID + '/delete', {
+        body: {
+          confirm: document.getElementById('delete-confirm').value,
+          delete_files: document.getElementById('delete-files').checked
+        }
+      });
+      location.href = res.redirect || '/';
+    } catch (err) {
+      HP.toast(err.message, 'error');
+      btn.disabled = false;
+    }
+  });
+
+  /* --------------------------------------------------------- progress */
+  var progressSource = null;
+  function showProgress() {
+    document.getElementById('progress-card').style.display = '';
+    var out = document.getElementById('progress-console');
+    out.textContent = '';
+    if (progressSource) progressSource.close();
+    progressSource = new EventSource('/sites/' + SITE_ID + '/progress');
+    progressSource.onmessage = function (ev) {
+      try {
+        var line = JSON.parse(ev.data);
+        out.textContent += line.line + '\n';
+        out.scrollTop = out.scrollHeight;
+      } catch (_) { /* ignore */ }
+    };
+    progressSource.addEventListener('done', function () {
+      progressSource.close();
+      progressSource = null;
+      setTimeout(function () { location.reload(); }, 1200);
+    });
+    progressSource.onerror = function () { /* SSE retries automatically */ };
+  }
+  <% if (provisioning) { %>showProgress();<% } %>
+
+  /* ------------------------------------------------------- live stats */
+  setInterval(async function () {
+    try {
+      var data = await fetch('/api/status?site=' + SITE_ID + '&stats=1', { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      var mine = (data.sites || [])[0];
+      if (!mine) return;
+      var pill = document.getElementById('state-pill');
+      pill.className = 'pill pill-' + mine.state;
+      pill.innerHTML = '<span class="dot"></span>' + mine.state;
+      if (mine.stats) {
+        document.getElementById('stat-cpu').textContent = mine.stats.cpuPercent + ' %';
+        document.getElementById('stat-mem').textContent = Math.round(mine.stats.memoryBytes / 1048576) + ' MB';
+      }
+    } catch (_) { /* transient */ }
+  }, 8000);
+</script>
+<%- include('partials/foot') %>
