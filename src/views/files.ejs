@@ -109,7 +109,7 @@
 
 <script>
   var SITE_ID = <%= site.id %>;
-  var current = <%- JSON.stringify(listing.path || '') %>;
+  var current = <%- jsonScript(listing.path || '') %>;
   var renameTarget = null;
   var editTarget = null;
 
@@ -134,7 +134,7 @@
 
   function renderCrumbs(path) {
     var parts = path ? path.split('/') : [];
-    var html = '<a href="#" data-path="">' + <%- JSON.stringify(site.name) %> + '</a>';
+    var html = '<a href="#" data-path="">' + HP.escapeHtml(<%- jsonScript(site.name) %>) + '</a>';
     var acc = '';
     parts.forEach(function (p) {
       acc = acc ? acc + '/' + p : p;

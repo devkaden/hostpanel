@@ -55,8 +55,54 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 app.use(auth.csrf);
 
+/**
+ * Security headers. No CSP nonce machinery here because the pages use inline
+ * scripts throughout, but everything else is locked down: the panel is never
+ * framed, MIME types are never sniffed, and no referrer leaks the panel URL.
+ */
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'X-DNS-Prefetch-Control': 'off',
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "font-src 'self' data:",
+      "connect-src 'self' ws: wss:",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'none'",
+      "object-src 'none'",
+    ].join('; '),
+  });
+  if (config.secureCookies) {
+    res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+/**
+ * Serialises a value for embedding inside a <script> block. Plain
+ * JSON.stringify is unsafe there: a string containing "</script>" ends the
+ * block and everything after it is parsed as HTML.
+ */
+function jsonForScript(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 // Common template locals.
 app.use((req, res, next) => {
+  res.locals.jsonScript = jsonForScript;
   res.locals.panelTitle = getSetting('panel_title') || 'HostPanel';
   res.locals.siteTypes = config.siteTypes;
   res.locals.currentPath = req.path;

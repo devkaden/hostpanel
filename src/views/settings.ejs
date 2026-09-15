@@ -169,9 +169,21 @@
           npmplus_insecure: document.getElementById('npmplus_insecure').checked
         }
       });
-      box.innerHTML = res.ok
-        ? '<div class="alert alert-ok mb0">Connected to ' + HP.escapeHtml(res.url) + ' &middot; ' + res.proxyHosts + ' proxy host(s) visible.</div>'
-        : '<div class="alert alert-error mb0">' + HP.escapeHtml(res.error) + '</div>';
+      if (res.ok) {
+        box.innerHTML = '<div class="alert alert-ok mb0">Connected to ' + HP.escapeHtml(res.url) +
+          (res.version ? ' (' + HP.escapeHtml(res.version) + ')' : '') +
+          ' &middot; ' + res.proxyHosts + ' proxy host(s) visible' +
+          (res.authMode ? ' &middot; auth via ' + HP.escapeHtml(res.authMode) : '') + '.</div>';
+      } else {
+        var STEP = {
+          reach: 'Step 1 — reaching the API',
+          auth: 'Step 2 — signing in',
+          read: 'Step 3 — reading proxy hosts'
+        };
+        box.innerHTML = '<div class="alert alert-error mb0">' +
+          (res.step ? '<strong>' + STEP[res.step] + ' failed.</strong><br>' : '') +
+          HP.escapeHtml(res.error) + '</div>';
+      }
     } catch (err) {
       box.innerHTML = '<div class="alert alert-error mb0">' + HP.escapeHtml(err.message) + '</div>';
     }

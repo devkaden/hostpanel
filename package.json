@@ -12,7 +12,10 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "check": "node scripts/syntax-check.js",
-    "reset-admin": "node scripts/reset-admin.js"
+    "test:npmplus": "node scripts/test-npmplus.js",
+    "reset-admin": "node scripts/reset-admin.js",
+    "test:security": "node scripts/test-security.js",
+    "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

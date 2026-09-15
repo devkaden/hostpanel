@@ -16,7 +16,10 @@ const config = {
   port: parseInt(process.env.PORT || '8890', 10),
   bindAddress: process.env.BIND_ADDRESS || '0.0.0.0',
   sessionSecret: process.env.SESSION_SECRET || 'change-me-in-dotenv',
-  trustProxy: process.env.TRUST_PROXY !== 'false',
+  // Opt-in, not opt-out: trusting X-Forwarded-For when the panel is reachable
+  // directly lets anyone spoof their client IP and walk past the login lockout.
+  // Only turn this on when the panel really does sit behind a reverse proxy.
+  trustProxy: process.env.TRUST_PROXY === 'true',
   // Set true only when the panel itself is served over HTTPS (e.g. behind NPMplus)
   secureCookies: process.env.SECURE_COOKIES === 'true',
   sessionHours: parseInt(process.env.SESSION_HOURS || '12', 10),
@@ -60,6 +63,10 @@ try {
   for (const dir of [config.dataDir, config.sitesDir, config.backupsDir, config.tmpDir]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  // The data directory holds the SQLite database, which contains password
+  // hashes and the NPMplus credentials. Keep it owner-only.
+  fs.chmodSync(config.dataDir, 0o750);
+  fs.chmodSync(config.tmpDir, 0o700);
 } catch (err) {
   console.error(
     `\nHostPanel could not create its data directory at ${config.dataDir}\n` +

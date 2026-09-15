@@ -1,11 +1,22 @@
 'use strict';
 
+const fs = require('fs');
 const Database = require('better-sqlite3');
 const config = require('./config');
 
 const db = new Database(config.dbFile);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+// The database stores password hashes and the NPMplus credentials, so keep it
+// unreadable to anyone but the owner (WAL files included).
+for (const suffix of ['', '-wal', '-shm']) {
+  try {
+    fs.chmodSync(config.dbFile + suffix, 0o600);
+  } catch (_) {
+    /* the sidecar files may not exist yet */
+  }
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

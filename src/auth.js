@@ -6,6 +6,18 @@ const { db, audit } = require('./db');
 
 const ROUNDS = 12;
 
+/** Length-safe constant-time string comparison. */
+function timingSafeEquals(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) {
+    // Still do a comparison so the failure path costs roughly the same.
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function hashPassword(plain) {
   return bcrypt.hashSync(plain, ROUNDS);
 }
@@ -18,11 +30,34 @@ function verifyPassword(plain, hash) {
   }
 }
 
+// A real hash at the same cost, used to equalise timing when no such user
+// exists. Always returns false.
+const DUMMY_HASH = bcrypt.hashSync('hostpanel-timing-equaliser', ROUNDS);
+
+function dummyVerify(plain) {
+  try {
+    bcrypt.compareSync(String(plain || ''), DUMMY_HASH);
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+/**
+ * Rejection sampling rather than `byte % length`, which biases toward the
+ * start of the alphabet when 256 is not a multiple of the alphabet size.
+ */
 function randomPassword(len = 18) {
   const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.randomBytes(len);
+  const limit = 256 - (256 % alphabet.length);
   let out = '';
-  for (let i = 0; i < len; i += 1) out += alphabet[bytes[i] % alphabet.length];
+  while (out.length < len) {
+    for (const byte of crypto.randomBytes(len * 2)) {
+      if (byte >= limit) continue;
+      out += alphabet[byte % alphabet.length];
+      if (out.length === len) break;
+    }
+  }
   return out;
 }
 
@@ -63,36 +98,63 @@ function ensureBootstrapAdmin() {
  * Brute-force throttling (in-memory, per username+ip)
  * ------------------------------------------------------------------ */
 const attempts = new Map();
-const MAX_ATTEMPTS = 8;
+const MAX_ATTEMPTS = 8; // per username+IP
+const MAX_PER_ACCOUNT = 20; // per username across every IP
 const LOCKOUT_MS = 10 * 60 * 1000;
 
 function attemptKey(username, ip) {
   return `${String(username || '').toLowerCase()}|${ip}`;
 }
 
-function isLockedOut(username, ip) {
-  const rec = attempts.get(attemptKey(username, ip));
-  if (!rec) return false;
-  if (Date.now() - rec.first > LOCKOUT_MS) {
-    attempts.delete(attemptKey(username, ip));
-    return false;
-  }
-  return rec.count >= MAX_ATTEMPTS;
+function accountKey(username) {
+  return `account:${String(username || '').toLowerCase()}`;
 }
 
-function recordFailure(username, ip) {
-  const key = attemptKey(username, ip);
+function bump(key, max) {
   const rec = attempts.get(key);
   if (!rec || Date.now() - rec.first > LOCKOUT_MS) {
-    attempts.set(key, { count: 1, first: Date.now() });
+    attempts.set(key, { count: 1, first: Date.now(), max });
   } else {
     rec.count += 1;
   }
 }
 
+function tripped(key) {
+  const rec = attempts.get(key);
+  if (!rec) return false;
+  if (Date.now() - rec.first > LOCKOUT_MS) {
+    attempts.delete(key);
+    return false;
+  }
+  return rec.count >= rec.max;
+}
+
+/**
+ * Two buckets: one per username+IP, and one per username across all IPs so a
+ * spread-out attack on a single account is still throttled.
+ */
+function isLockedOut(username, ip) {
+  return tripped(attemptKey(username, ip)) || tripped(accountKey(username));
+}
+
+function recordFailure(username, ip) {
+  bump(attemptKey(username, ip), MAX_ATTEMPTS);
+  bump(accountKey(username), MAX_PER_ACCOUNT);
+}
+
 function clearFailures(username, ip) {
   attempts.delete(attemptKey(username, ip));
+  attempts.delete(accountKey(username));
 }
+
+// Stop the map growing without bound on a long-running panel.
+const sweeper = setInterval(() => {
+  const now = Date.now();
+  for (const [key, rec] of attempts) {
+    if (now - rec.first > LOCKOUT_MS) attempts.delete(key);
+  }
+}, LOCKOUT_MS);
+if (sweeper.unref) sweeper.unref();
 
 /* ------------------------------------------------------------------ *
  * Middleware
@@ -147,9 +209,10 @@ function csrf(req, res, next) {
   const safe = ['GET', 'HEAD', 'OPTIONS'];
   if (safe.includes(req.method)) return next();
 
-  const supplied =
-    req.get('x-csrf-token') || (req.body && req.body._csrf) || req.query._csrf || '';
-  if (!req.session || !req.session.csrfToken || supplied !== req.session.csrfToken) {
+  const supplied = String(
+    req.get('x-csrf-token') || (req.body && req.body._csrf) || req.query._csrf || ''
+  );
+  if (!req.session || !req.session.csrfToken || !timingSafeEquals(supplied, req.session.csrfToken)) {
     if (wantsJson(req)) return res.status(403).json({ error: 'Invalid CSRF token' });
     return res.status(403).render('error', {
       title: 'Request rejected',
@@ -168,6 +231,8 @@ function login(req, user) {
 module.exports = {
   hashPassword,
   verifyPassword,
+  dummyVerify,
+  timingSafeEquals,
   randomPassword,
   findUser,
   findUserByUsername,

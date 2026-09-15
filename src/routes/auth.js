@@ -6,12 +6,24 @@ const auth = require('../auth');
 
 const router = express.Router();
 
+/**
+ * Only same-origin, absolute paths may be redirected to after login.
+ * "//evil.com" and "/\evil.com" also start with "/" but browsers treat them as
+ * protocol-relative URLs, so a naive startsWith('/') check is an open redirect.
+ */
+function safeNext(value) {
+  if (typeof value !== 'string' || !value.startsWith('/')) return '/';
+  if (value.startsWith('//') || value.startsWith('/\\')) return '/';
+  if (/[\r\n]/.test(value)) return '/';
+  return value;
+}
+
 router.get('/login', (req, res) => {
   if (req.session && req.session.user) return res.redirect('/');
   return res.render('login', {
     title: 'Sign in',
     error: null,
-    next: req.query.next || '/',
+    next: safeNext(req.query.next),
     username: '',
   });
 });
@@ -19,7 +31,7 @@ router.get('/login', (req, res) => {
 router.post('/login', (req, res) => {
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
-  const next = typeof req.body.next === 'string' && req.body.next.startsWith('/') ? req.body.next : '/';
+  const next = safeNext(req.body.next);
 
   const fail = (message) =>
     res.status(401).render('login', { title: 'Sign in', error: message, next, username });
@@ -32,7 +44,13 @@ router.post('/login', (req, res) => {
   }
 
   const user = auth.findUserByUsername(username);
-  if (!user || !user.active || !auth.verifyPassword(password, user.password_hash)) {
+  // Hash against a dummy when the account does not exist, so a missing user
+  // and a wrong password take the same amount of time to reject.
+  const passwordOk = user
+    ? auth.verifyPassword(password, user.password_hash)
+    : auth.dummyVerify(password);
+
+  if (!user || !user.active || !passwordOk) {
     auth.recordFailure(username, req.ip);
     audit(req, 'auth.fail', username);
     return fail('Incorrect username or password.');
@@ -53,7 +71,9 @@ router.post('/logout', (req, res) => {
 
 // GET logout is handy for a plain link, but only with the CSRF token attached.
 router.get('/logout', (req, res) => {
-  if (req.query._csrf !== req.session.csrfToken) return res.redirect('/');
+  if (!auth.timingSafeEquals(String(req.query._csrf || ''), req.session.csrfToken || '')) {
+    return res.redirect('/');
+  }
   req.session.destroy(() => res.redirect('/login'));
 });
 

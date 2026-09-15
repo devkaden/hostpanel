@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+'use strict';
+/*
+ * Security regression tests that run without the runtime dependencies:
+ * script-context escaping, redirect validation, path traversal and zip-slip.
+ *
+ * Run with: npm run test:security
+ */
+
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+let pass = 0;
+let fail = 0;
+function check(name, cond, detail) {
+  if (cond) { pass += 1; console.log(`  PASS  ${name}`); }
+  else { fail += 1; console.log(`  FAIL  ${name}${detail ? '\n        ' + detail : ''}`); }
+}
+
+/* ------------------------------------------------- 1. script escaping ---- */
+// Mirrors jsonForScript() in src/index.js.
+function jsonForScript(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+console.log('\nembedding untrusted data in a <script> block');
+{
+  const evil = { command: '</script><img src=x onerror=alert(1)>' };
+  const out = jsonForScript(evil);
+  check('no literal </script> survives', !/<\/script/i.test(out), out);
+  check('no raw angle brackets at all', !/[<>]/.test(out), out);
+  check('still parses back to the original', JSON.parse(out).command === evil.command);
+
+  const seps = jsonForScript('line\u2028sep\u2029para');
+  check('escapes U+2028 / U+2029', !/[\u2028\u2029]/.test(seps), seps);
+
+  // Verify the source actually uses the helper, not bare JSON.stringify.
+  const views = path.join(__dirname, '..', 'src', 'views');
+  let bare = [];
+  for (const file of fs.readdirSync(views)) {
+    if (!file.endsWith('.ejs')) continue;
+    const src = fs.readFileSync(path.join(views, file), 'utf8');
+    if (/<%-\s*JSON\.stringify/.test(src)) bare.push(file);
+  }
+  check('no view uses <%- JSON.stringify %>', bare.length === 0, bare.join(', '));
+}
+
+/* --------------------------------------------------- 2. safe redirect ---- */
+// Mirrors safeNext() in src/routes/auth.js.
+function safeNext(value) {
+  if (typeof value !== 'string' || !value.startsWith('/')) return '/';
+  if (value.startsWith('//') || value.startsWith('/\\')) return '/';
+  if (/[\r\n]/.test(value)) return '/';
+  return value;
+}
+
+console.log('\npost-login redirect target');
+{
+  check('rejects //evil.com', safeNext('//evil.com') === '/');
+  check('rejects /\\evil.com', safeNext('/\\evil.com') === '/');
+  check('rejects an absolute URL', safeNext('https://evil.com') === '/');
+  check('rejects a header-injection newline', safeNext('/ok\r\nSet-Cookie: x=1') === '/');
+  check('rejects a non-string', safeNext(undefined) === '/');
+  check('allows a normal path', safeNext('/sites/3/files') === '/sites/3/files');
+}
+
+/* ------------------------------------------------- 3. path containment --- */
+console.log('\nfile manager path containment');
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hp-sec-'));
+  const secret = path.join(os.tmpdir(), 'hp-outside-secret.txt');
+  fs.writeFileSync(secret, 'do not read me');
+  fs.mkdirSync(path.join(root, 'app'), { recursive: true });
+
+  // Mirrors the containment logic in src/filemanager.js resolveSafe().
+  function resolveSafe(relPath) {
+    const rootReal = fs.realpathSync(root);
+    const cleaned = String(relPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const target = path.resolve(rootReal, cleaned);
+    const rel = path.relative(rootReal, target);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('outside');
+    if (fs.existsSync(target)) {
+      const relReal = path.relative(rootReal, fs.realpathSync(target));
+      if (relReal.startsWith('..') || path.isAbsolute(relReal)) throw new Error('outside');
+    }
+    return target;
+  }
+
+  const blocked = (p) => {
+    try { resolveSafe(p); return false; } catch (_) { return true; }
+  };
+
+  check('blocks ../../etc/passwd', blocked('../../etc/passwd'));
+  check('blocks a backslash traversal', blocked('..\\..\\etc\\passwd'));
+  check('blocks a nested traversal', blocked('app/../../../etc/passwd'));
+  check('allows a normal path', !blocked('app/index.html'));
+
+  // A leading slash is stripped rather than rejected, so "/etc/passwd" must
+  // land inside the site root and never touch the real /etc/passwd.
+  const abs = resolveSafe('/etc/passwd');
+  check(
+    'an absolute path is confined to the site root',
+    abs.startsWith(fs.realpathSync(root) + path.sep) && abs !== '/etc/passwd',
+    abs
+  );
+
+  // A symlink pointing outside the root must not be followable.
+  const link = path.join(root, 'app', 'escape');
+  try {
+    fs.symlinkSync(secret, link);
+    check('blocks a symlink escaping the root', blocked('app/escape'));
+  } catch (_) {
+    console.log('  SKIP  symlink escape (cannot create symlinks here)');
+  }
+
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(secret, { force: true });
+}
+
+/* ------------------------------------------------------- 4. zip slip ----- */
+console.log('\nzip extraction containment');
+{
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hp-zip-')));
+  const destDir = path.join(root, 'app');
+  fs.mkdirSync(destDir, { recursive: true });
+
+  // Mirrors the guard in src/filemanager.js extractZip().
+  function entryAllowed(entryName) {
+    const outPath = path.resolve(destDir, entryName);
+    const rel = path.relative(root, outPath);
+    return !(rel.startsWith('..') || path.isAbsolute(rel));
+  }
+
+  check('rejects ../../../etc/cron.d/evil', !entryAllowed('../../../etc/cron.d/evil'));
+  check('rejects an absolute entry', !entryAllowed('/etc/passwd'));
+  check('accepts a normal entry', entryAllowed('assets/app.js'));
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+/* --------------------------------------------- 5. security headers set --- */
+console.log('\nsecurity headers declared in src/index.js');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');
+  for (const header of [
+    'X-Content-Type-Options',
+    'X-Frame-Options',
+    'Referrer-Policy',
+    'Content-Security-Policy',
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+  ]) {
+    check(`sets ${header}`, src.includes(header));
+  }
+  check('trust proxy is opt-in', /TRUST_PROXY === 'true'/.test(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'config.js'), 'utf8')
+  ));
+}
+
+console.log(`\n${pass} passed, ${fail} failed\n`);
+process.exit(fail ? 1 : 0);

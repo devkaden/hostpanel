@@ -45,8 +45,41 @@ Go to **Settings** and fill in:
 | Let's Encrypt email | where expiry notices go |
 | Host IP | the address NPMplus should forward traffic to |
 
-Press **Test connection**. It authenticates against `POST /api/tokens` and lists
-your proxy hosts back, so a green result means the whole integration works.
+Press **Test connection**. It probes in three steps and tells you which one
+failed:
+
+1. **Reaching the API** — `GET /api` should return `{"status":"OK", …}`
+2. **Signing in** — `POST /api/tokens`
+3. **Reading proxy hosts** — `GET /api/nginx/proxy-hosts`
+
+### A note on NPMplus authentication
+
+Current NPMplus (2.15.x and later) does **not** return a JWT in the response
+body and does **not** accept an `Authorization: Bearer` header. `POST
+/api/tokens` answers `{"expires": "…"}` and puts the signed token in an
+httpOnly cookie named `__Host-Http-token`. The panel keeps a cookie jar and
+replays it on every call.
+
+Older NPM and NPMplus builds returned `{"token": "…"}` and took a Bearer
+header. That path still works and is used automatically when a token is present
+in the body, so the panel handles both generations.
+
+Two accounts the panel cannot use:
+
+- **TOTP enabled** — sign-in returns `{"requiresTotp": true}` and a challenge
+  cookie that needs a six-digit code. Use a dedicated API account without TOTP.
+- **OIDC-only** — if `GET /api` reports `"password": false` and `"oidc": true`,
+  there is no local password to authenticate with.
+
+If NPMplus sits behind another reverse proxy, that proxy must not strip
+`Set-Cookie` or the panel never receives a session.
+
+You can exercise the whole client against a simulated NPMplus without touching
+your real one:
+
+```bash
+npm run test:npmplus
+```
 
 **Host IP** is the one people get wrong. It must be an address the NPMplus host
 can reach this panel's host on. If NPMplus runs on the same machine, the LAN IP
@@ -162,10 +195,48 @@ appearance of isolation without the substance. What this means in practice:
 - Only give admin to people you would give root to. A standard user is confined
   to their own sites, but a shell inside a container is still a shell.
 
-Included by default: bcrypt password hashing (cost 12), CSRF tokens on every
-mutating request, login throttling after 8 failed attempts, session
-invalidation on disable or password reset, path-traversal and zip-slip guards
-in the file manager, and an audit log of every action.
+### What is hardened
+
+| Area | Measure |
+|---|---|
+| Passwords | bcrypt, cost 12; forced change at first login; dummy hash on unknown users so timing does not reveal which accounts exist |
+| Sessions | httpOnly, SameSite=Lax, regenerated on login (no session fixation); killed on disable or password reset |
+| CSRF | Token on every mutating request, compared in constant time |
+| Brute force | Two buckets — 8 tries per username+IP and 20 per username across all IPs — over a 10-minute window |
+| XSS | All template output escaped; data embedded in `<script>` blocks is escaped so `</script>` in a cron command or job output cannot break out |
+| Redirects | The post-login `next` parameter must be a same-origin path; `//evil.com` and `/\evil.com` are rejected |
+| Files | Traversal, symlink-escape and zip-slip guards; downloads always served as attachments |
+| Headers | CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `SECURE_COOKIES=true` |
+| Secrets | Database `0600`, data directory `0750`, `.env` `0600` |
+| Generated passwords | `crypto.randomBytes` with rejection sampling (no modulo bias) |
+| Audit | Every action logged with user, target and IP |
+
+Run the checks yourself:
+
+```bash
+npm test            # syntax, NPMplus client, security regressions
+npm run test:security
+```
+
+### Known limitations
+
+These are deliberate trade-offs, not oversights:
+
+- **Cron commands and the terminal execute arbitrary code inside a site's
+  container.** That is the feature. Anyone with access to a site can run
+  anything as root *in that container*.
+- **`TRUST_PROXY` defaults to `false`.** If the panel sits behind a reverse
+  proxy, set it to `true` so the lockout sees real client IPs — but only if the
+  panel is *not* also reachable directly, or a spoofed `X-Forwarded-For` would
+  defeat the lockout.
+- **The NPMplus password is stored in plaintext** in the panel's database. It
+  has to be replayed on every API call, so it cannot be hashed. Use a dedicated
+  NPMplus account rather than your personal admin login.
+- **The CSP allows `'unsafe-inline'` for scripts,** because the pages use inline
+  scripts. It still blocks framing, objects, foreign form posts and base-tag
+  injection.
+- **No 2FA on the panel itself.** Put it behind an NPMplus access list if you
+  need a second factor.
 
 If you put the panel itself behind NPMplus, set `SECURE_COOKIES=true` in
 `.env`. Websockets must be allowed on that proxy host for the terminal to work.
@@ -225,6 +296,16 @@ database and every site directory. For WordPress, stop the site first or take a
 
 ## Troubleshooting
 
+**apt 404s on `.deb` files during install** — the package index is stale and
+points at filenames a Debian point release has already replaced. The installer
+now retries this automatically; to clear it by hand:
+
+```bash
+rm -rf /var/lib/apt/lists/* && apt-get clean && apt-get update
+```
+
+Then re-run `./install.sh` — it is safe to re-run at any point.
+
 **"Docker is not reachable"** — `systemctl status docker`. In an LXC, check
 nesting is enabled.
 
@@ -234,6 +315,22 @@ The proxy host is still created and the site works over HTTP; use **Re-sync
 proxy + SSL** once DNS has propagated.
 
 **"Host IP is not set"** — fill it in under Settings. See the table above.
+
+**NPMplus test connection fails** — the message names the step. Failing at
+step 1 means the URL is not reaching the API (the admin interface is on port 81
+over HTTPS by default). Step 2 is the credentials, or one of the account
+limitations in the authentication note above. To see the raw exchange:
+
+```bash
+curl -sk https://<npmplus-host>/api
+curl -sk -i -X POST https://<npmplus-host>/api/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"identity":"you@example.com","secret":"yourpassword"}'
+```
+
+A healthy sign-in is a `200` whose body is `{"expires": "…"}` with a
+`set-cookie: __Host-Http-token=…` header. Note that `/api/tokens` is rate
+limited to 10 attempts per 5 minutes.
 
 **Site shows nginx's default page or a 502** — check the container is running
 on the site page, then read the container log. For Node, confirm the app binds

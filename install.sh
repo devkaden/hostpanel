@@ -34,9 +34,29 @@ SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --------------------------------------------------------------- packages ---
 say "Installing base packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg git rsync build-essential python3 unzip >/dev/null
+
+# A stale package index points at filenames the mirror has already replaced
+# (a Debian point release moves them), which surfaces as 404s on .deb files.
+# Refreshing the lists from scratch is the fix, so do it automatically.
+refresh_apt_lists() {
+  rm -rf /var/lib/apt/lists/*
+  apt-get clean
+  apt-get update -qq
+}
+
+BASE_PACKAGES="ca-certificates curl gnupg rsync build-essential python3 unzip"
+
+apt-get update -qq || refresh_apt_lists
+if ! apt-get install -y -qq $BASE_PACKAGES >/dev/null 2>&1; then
+  warn "package index looked stale, refreshing it and retrying"
+  refresh_apt_lists
+  apt-get install -y -qq $BASE_PACKAGES >/dev/null \
+    || die "Could not install base packages. Run 'apt-get update' manually and check the output."
+fi
 ok "base packages ready"
+
+# git is handy to have but nothing in this installer needs it.
+apt-get install -y -qq git >/dev/null 2>&1 || warn "git could not be installed, continuing without it"
 
 # ------------------------------------------------------------------- node ---
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ]; then
