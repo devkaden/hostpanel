@@ -1,7 +1,11 @@
 <% const u = (typeof user !== 'undefined') ? user : null; %>
 <header class="topbar">
   <a class="brand" href="/">
-    <span class="brand-mark">HP</span>
+    <span class="brand-mark">
+      <% if (typeof brandLogo !== 'undefined' && brandLogo) { %>
+        <img src="<%= brandLogo %>" alt="">
+      <% } else { %>HP<% } %>
+    </span>
     <span><%= panelTitle %></span>
   </a>
   <nav class="topnav">
@@ -11,15 +15,20 @@
       <a href="/users" class="<%= currentPath.startsWith('/users') ? 'active' : '' %>">Users</a>
       <a href="/settings" class="<%= currentPath.startsWith('/settings') ? 'active' : '' %>">Settings</a>
       <% if (typeof hostShell !== 'undefined' && hostShell) { %>
-        <a href="/host/terminal" class="<%= currentPath === '/host/terminal' ? 'active' : '' %>">Host shell</a>
+        <a href="/host/terminal" class="adv <%= currentPath === '/host/terminal' ? 'active' : '' %>">Host shell</a>
       <% } %>
     <% } %>
-    <a href="/audit" class="<%= currentPath === '/audit' ? 'active' : '' %>">Activity</a>
+    <a href="/audit" class="adv <%= currentPath === '/audit' ? 'active' : '' %>">Activity</a>
   </nav>
   <div class="topbar-right">
     <% if (u) { %>
-      <span class="who"><%= u.username %><% if (u.role === 'admin') { %><span class="pill pill-admin">admin</span><% } %></span>
-      <a class="btn btn-ghost btn-sm" href="/account/password">Password</a>
+      <div class="seg" title="Simple hides Docker internals. Advanced shows everything.">
+        <button type="button" data-mode-set="simple">Simple</button>
+        <button type="button" data-mode-set="advanced">Advanced</button>
+      </div>
+      <button type="button" class="icon-btn" id="theme-toggle" title="Switch between light and dark">&#9681;</button>
+      <span class="who adv"><%= u.username %><% if (u.role === 'admin') { %><span class="pill pill-admin">admin</span><% } %></span>
+      <a class="btn btn-ghost btn-sm adv" href="/account/password">Password</a>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>

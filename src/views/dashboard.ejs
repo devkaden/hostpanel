@@ -6,16 +6,18 @@
 
   <% if (!docker.ok) { %>
     <div class="alert alert-error">
-      <strong>Docker is not reachable.</strong> <%= docker.error %><br>
-      Sites cannot be created or controlled until the panel can talk to the Docker socket
-      (<code class="inline"><%= process.env.DOCKER_SOCKET || '/var/run/docker.sock' %></code>).
+      <strong>Docker is not responding, so sites cannot be created or started.</strong><br>
+      <span class="small"><%= docker.error %></span><br>
+      Check it is running with <code class="inline">systemctl status docker</code>. If this panel is in an
+      LXC container, Docker also needs nesting enabled on that container.
     </div>
   <% } %>
 
   <% if (!npmplusOn && user.role === 'admin') { %>
     <div class="alert alert-info">
-      NPMplus integration is off. Turn it on in <a href="/settings">Settings</a> and new sites will get
-      their reverse proxy and SSL certificate automatically.
+      <strong>No reverse proxy is connected.</strong> Your sites work, but you reach them by port number
+      rather than by domain. <a href="/settings">Connect NPMplus in Settings</a> to have domains and
+      HTTPS certificates set up for you, or <a href="/setup">run the setup guide</a>.
     </div>
   <% } %>
 
@@ -38,9 +40,16 @@
 
   <% if (!sites.length) { %>
     <div class="card empty">
+      <div class="empty-icon">&#127760;</div>
       <h3>No sites yet</h3>
-      <p>Create your first site and HostPanel will build the container, wire up the reverse proxy and request a certificate.</p>
-      <a class="btn btn-primary mt" href="/sites/new">Create a site</a>
+      <p>A site is one website or app. HostPanel gives each one its own isolated
+        space, so they cannot interfere with each other.</p>
+      <ol class="steps">
+        <li><strong>Pick a type</strong> - a plain website, PHP, WordPress, or a Node.js app.</li>
+        <li><strong>Give it a name and a domain</strong> - the domain can wait if you are just testing.</li>
+        <li><strong>That's it</strong> - the container is built and, if your reverse proxy is connected, the domain and HTTPS are set up too.</li>
+      </ol>
+      <a class="btn btn-primary mt" href="/sites/new">Create your first site</a>
     </div>
   <% } else { %>
     <div class="site-grid">

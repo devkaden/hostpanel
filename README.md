@@ -8,8 +8,13 @@ proxy your domain at that port and issue the Let's Encrypt certificate.
 **Site types:** static/HTML, PHP, WordPress (with its own MariaDB), Node.js.
 
 **Included:** multi-user logins with roles, a file manager with uploads and an
-inline editor, a browser shell into any container, live logs, per-site cron, and
-full NPMplus proxy + SSL automation.
+inline editor, a browser shell into any container, live logs, per-site scheduled
+tasks, and full NPMplus proxy + SSL automation.
+
+**Built to hand to someone else:** a guided first-run setup, a Simple/Advanced
+toggle that hides Docker internals until they are wanted, inline help on every
+non-obvious field, light and dark themes, and a configurable name, logo and
+accent colour.
 
 **Repository:** <https://github.com/devkaden/hostpanel>
 
@@ -177,8 +182,67 @@ at first login, and resetting a password ends that user's sessions immediately.
 
 **Settings that need a rebuild.** Domain and notes apply immediately. Runtime
 version, ports, environment variables and resource limits change the container
-definition, so hit **Rebuild** after saving. Rebuild recreates the container and
+definition, so hit **Apply changes** after saving. It recreates the container and
 keeps every file.
+
+---
+
+## Making it yours
+
+**Simple and Advanced.** The toggle in the top bar switches between the two.
+Simple hides container names, images, resource limits, environment variables and
+the advanced Docker options; Advanced shows everything. The choice is per person
+and remembered in their browser. Set the default for new visitors under
+Settings → Appearance.
+
+**Inline help.** The small `?` next to a field explains it in one sentence, on
+hover or keyboard focus.
+
+**Setup guide.** A new install sends the first administrator through a
+three-step wizard: this server's address, the reverse proxy, and a first site.
+Re-run it any time from Settings → Setup guide.
+
+**Theme and branding.** Light, dark, or match the device. The panel name, a logo
+and the accent colour are all configurable. Individuals can override the theme
+with the toggle in the top bar.
+
+### Ports
+
+Everything is adjustable, and nothing has to be:
+
+| Port | Where | Notes |
+|---|---|---|
+| The panel's own | Settings → Panel | Overrides `.env`. Restart to apply. |
+| The pool for new sites | Settings → Panel | Defaults to 21000-21999. |
+| A site's host port | Site → Settings (Advanced) | Checked live against other sites *and* anything already listening. Apply changes afterwards, and update your proxy. |
+| A site's internal port | Site → Settings (Advanced) | The port the server inside the container listens on. Node apps get it as `PORT`; nginx and Apache have it written into their config. |
+
+### Advanced container options
+
+Per site, under Advanced:
+
+- **Custom image** — replaces the default image for that site type
+- **Extra folders** — one per line as `folder:/path/in/container`, restricted to
+  paths inside that site's own directory
+- **Container labels** — JSON, for Watchtower, Traefik and similar. Labels
+  cannot overwrite the `hostpanel.*` ones the panel relies on.
+- **Docker network** — blank gives the site its own private network; name an
+  existing one to place it alongside other containers. A network the panel did
+  not create is never deleted.
+
+### Presets
+
+**Save as preset** on any site stores its runtime, commands, limits, environment
+variables and container options. The next site can start from it. Names,
+domains, ports and database credentials are never included, since those must be
+unique. Manage presets under Settings.
+
+### Generated config files
+
+The nginx and Apache configs in each site's `conf/` folder are generated, then
+yours. The panel keeps a hash of what it wrote and only rewrites a file while it
+still matches — the moment you edit one, it stops touching it. Config files that
+predate this tracking are adopted as yours and never overwritten.
 
 ---
 
@@ -216,9 +280,14 @@ appearance of isolation without the substance. What this means in practice:
 Run the checks yourself:
 
 ```bash
-npm test            # syntax, NPMplus client, security regressions
+npm test            # syntax, NPMplus client, security, ports and container specs
 npm run test:security
+npm run test:npmplus
+npm run test:config
 ```
+
+All of it runs without dependencies installed and without touching Docker or
+your real NPMplus.
 
 ### Known limitations
 

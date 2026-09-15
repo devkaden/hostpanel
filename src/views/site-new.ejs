@@ -4,13 +4,13 @@
   <div class="page-head">
     <div>
       <h1>New site</h1>
-      <p class="sub">HostPanel creates a container, a data directory and (optionally) the NPMplus proxy host.</p>
+      <p class="sub">Pick a type and a name. Everything else has a sensible default.</p>
     </div>
   </div>
 
   <% if (errors && errors.length) { %>
     <div class="alert alert-error">
-      <strong>Could not create the site:</strong>
+      <strong>The site could not be created:</strong>
       <ul><% errors.forEach(function (e) { %><li><%= e %></li><% }) %></ul>
     </div>
   <% } %>
@@ -19,10 +19,10 @@
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
     <div class="card">
-      <h2>Basics</h2>
+      <h2>What are you hosting?</h2>
 
       <div class="field">
-        <label for="type">Site type</label>
+        <label for="type">Type of site</label>
         <select id="type" name="type" onchange="updateType()">
           <% Object.keys(config.siteTypes).forEach(function (key) { %>
             <option value="<%= key %>" <%= form.type === key ? 'selected' : '' %>><%= config.siteTypes[key].label %></option>
@@ -31,27 +31,47 @@
         <div class="hint" id="type-hint"></div>
       </div>
 
+      <% if (templates && templates.length) { %>
+        <div class="field">
+          <label for="template_id">
+            Start from a saved preset
+            <span class="help" data-help="A preset remembers the settings of a site you configured before, so you do not have to set them up again."></span>
+          </label>
+          <select id="template_id" name="template_id">
+            <option value="">No preset - use the defaults</option>
+            <% templates.forEach(function (t) { %>
+              <option value="<%= t.id %>" data-type="<%= t.type %>"><%= t.name %><%= t.description ? ' - ' + t.description : '' %></option>
+            <% }) %>
+          </select>
+        </div>
+      <% } %>
+
       <div class="field">
-        <label for="name">Site name</label>
+        <label for="name">
+          Name
+          <span class="help" data-help="A short label used for the folder and container name. Lowercase letters, numbers and hyphens."></span>
+        </label>
         <input id="name" name="name" type="text" value="<%= form.name || '' %>" placeholder="my-app" pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]" required>
-        <div class="hint">Lowercase letters, digits and hyphens. Used for the container name and the data directory.</div>
       </div>
 
       <div class="field">
-        <label for="domain">Primary domain</label>
+        <label for="domain">
+          Web address
+          <span class="help" data-help="The domain visitors will type. Leave it blank to test the site by port first and add the domain later."></span>
+        </label>
         <input id="domain" name="domain" type="text" value="<%= form.domain || '' %>" placeholder="app.example.com">
-        <div class="hint">Leave blank to reach the site on its host port only. The DNS record must already point at NPMplus.</div>
+        <div class="hint">Its DNS must already point at your reverse proxy. You can add this later.</div>
       </div>
 
-      <div class="field">
-        <label for="extra_domains">Additional domains</label>
+      <div class="field adv">
+        <label for="extra_domains">Other addresses for the same site</label>
         <input id="extra_domains" name="extra_domains" type="text" value="<%= form.extra_domains || '' %>" placeholder="www.example.com, example.com">
-        <div class="hint">Comma separated. Included on the same proxy host and certificate.</div>
+        <div class="hint">Separate with commas. They share one certificate.</div>
       </div>
 
       <% if (owners && owners.length) { %>
-        <div class="field">
-          <label for="owner_id">Owner</label>
+        <div class="field adv">
+          <label for="owner_id">Belongs to</label>
           <select id="owner_id" name="owner_id">
             <% owners.forEach(function (o) { %>
               <option value="<%= o.id %>" <%= String(form.owner_id) === String(o.id) ? 'selected' : '' %>><%= o.username %></option>
@@ -62,7 +82,7 @@
     </div>
 
     <div class="card" id="runtime-card">
-      <h2>Runtime</h2>
+      <h2>How it runs</h2>
 
       <div class="field" data-for="php wordpress">
         <label for="php_version">PHP version</label>
@@ -84,56 +104,125 @@
 
       <div class="field-row" data-for="node">
         <div class="field">
-          <label for="install_command">Install command</label>
+          <label for="install_command">
+            Install command
+            <span class="help" data-help="Run once before the app starts, to download its dependencies."></span>
+          </label>
           <input id="install_command" name="install_command" type="text" value="<%= form.install_command || 'npm install --omit=dev' %>">
-          <div class="hint">Runs once inside the container after the files are in place.</div>
         </div>
         <div class="field">
-          <label for="start_command">Start command</label>
+          <label for="start_command">
+            Start command
+            <span class="help" data-help="How your app is launched. Whatever you would type to run it yourself."></span>
+          </label>
           <input id="start_command" name="start_command" type="text" value="<%= form.start_command || 'npm start' %>">
-          <div class="hint">PID 1 of the container.</div>
         </div>
       </div>
 
       <div class="field" data-for="node">
-        <label for="app_port">App listen port</label>
-        <input id="app_port" name="app_port" type="number" min="1" max="65535" value="<%= form.app_port || 3000 %>">
-        <div class="hint">The port your app binds inside the container. <code class="inline">PORT</code> is set to this for you.</div>
+        <label for="app_port_node">
+          Port your app listens on
+          <span class="help" data-help="The port inside the container. HostPanel sets the PORT variable to this, so most apps pick it up automatically."></span>
+        </label>
+        <input id="app_port_node" name="app_port" type="number" min="1" max="65535" value="<%= form.app_port || 3000 %>">
       </div>
 
-      <div class="field-row">
+      <div class="field-row adv">
         <div class="field">
-          <label for="memory_mb">Memory limit (MB)</label>
+          <label for="memory_mb">
+            Memory limit
+            <span class="help" data-help="Caps how much RAM this site can use, in megabytes. 0 means no limit."></span>
+          </label>
           <input id="memory_mb" name="memory_mb" type="number" min="0" step="64" value="<%= form.memory_mb || 0 %>">
-          <div class="hint">0 = unlimited.</div>
+          <div class="hint">MB. 0 = unlimited.</div>
         </div>
         <div class="field">
-          <label for="cpu_limit">CPU limit (cores)</label>
+          <label for="cpu_limit">
+            CPU limit
+            <span class="help" data-help="How many processor cores this site may use. 0.5 is half a core. 0 means no limit."></span>
+          </label>
           <input id="cpu_limit" name="cpu_limit" type="number" min="0" step="0.25" value="<%= form.cpu_limit || 0 %>">
-          <div class="hint">0 = unlimited.</div>
+          <div class="hint">Cores. 0 = unlimited.</div>
         </div>
       </div>
 
-      <div class="field">
-        <label for="env_json">Environment variables (JSON)</label>
+      <div class="field adv">
+        <label for="env_json">
+          Environment variables
+          <span class="help" data-help="Settings passed to your app as environment variables, written as JSON. Handy for API keys and database URLs."></span>
+        </label>
         <textarea id="env_json" name="env_json" spellcheck="false" placeholder='{ "API_KEY": "abc123" }'><%= form.env_json || '' %></textarea>
       </div>
     </div>
 
+    <div class="card adv">
+      <h2>Networking</h2>
+
+      <div class="field">
+        <label for="port">
+          Port on this server
+          <span class="help" data-help="The port the site is published on. Your reverse proxy forwards to it. Leave blank and the next free port is chosen for you."></span>
+        </label>
+        <div style="display:flex;gap:.5rem">
+          <input id="port" name="port" type="number" min="1024" max="65535" value="<%= form.port || '' %>" placeholder="chosen automatically">
+          <button class="btn" type="button" id="suggest-port">Suggest</button>
+        </div>
+        <div id="port-feedback"></div>
+      </div>
+
+      <div class="field">
+        <label for="docker_network">
+          Docker network
+          <span class="help" data-help="Leave blank and the site gets its own private network. Name an existing network to place it alongside other containers."></span>
+        </label>
+        <input id="docker_network" name="docker_network" type="text" value="<%= form.docker_network || '' %>" placeholder="its own private network">
+      </div>
+    </div>
+
+    <div class="card adv">
+      <h2>Advanced container options</h2>
+      <p class="muted small">Leave these alone unless you know you need them.</p>
+
+      <div class="field">
+        <label for="custom_image">
+          Custom Docker image
+          <span class="help" data-help="Replaces the image the site type would normally use. The container still gets the same folders and ports."></span>
+        </label>
+        <input id="custom_image" name="custom_image" type="text" value="<%= form.custom_image || '' %>" placeholder="leave blank to use the default for this type">
+      </div>
+
+      <div class="field">
+        <label for="extra_volumes">
+          Extra folders to mount
+          <span class="help" data-help="One per line, as folder:/path/in/container. Paths must sit inside this site's own directory."></span>
+        </label>
+        <textarea id="extra_volumes" name="extra_volumes" spellcheck="false" placeholder="uploads:/var/www/uploads"><%= form.extra_volumes || '' %></textarea>
+      </div>
+
+      <div class="field">
+        <label for="extra_labels">
+          Container labels
+          <span class="help" data-help="Docker labels as JSON, for tools like Watchtower or Traefik."></span>
+        </label>
+        <textarea id="extra_labels" name="extra_labels" spellcheck="false" placeholder='{ "com.example.key": "value" }'><%= form.extra_labels || '' %></textarea>
+      </div>
+    </div>
+
     <div class="card">
-      <h2>Reverse proxy</h2>
+      <h2>Domain and HTTPS</h2>
       <% if (npmplusOn) { %>
         <div class="check">
           <input type="checkbox" id="setup_proxy" name="setup_proxy" checked>
           <div>
-            <label for="setup_proxy">Create the NPMplus proxy host and request a Let's Encrypt certificate</label>
-            <div class="hint">Needs a domain above, and DNS already pointing at NPMplus. You can also do this later from the site page.</div>
+            <label for="setup_proxy">Point my domain at this site and set up HTTPS</label>
+            <div class="hint">Creates the proxy entry and requests a certificate. Needs a domain above, with DNS already pointing at your reverse proxy.</div>
           </div>
         </div>
       <% } else { %>
-        <div class="alert alert-warn mb0">
-          NPMplus integration is off, so no proxy host will be created. The site will still be reachable on its host port.
-          <% if (user.role === 'admin') { %> Configure it in <a href="/settings">Settings</a>.<% } %>
+        <div class="alert alert-info mb0">
+          No reverse proxy is connected, so the domain will not be wired up automatically.
+          The site still works &mdash; you reach it by port.
+          <% if (user.role === 'admin') { %> You can connect one in <a href="/settings">Settings</a>.<% } %>
         </div>
       <% } %>
     </div>
@@ -147,10 +236,10 @@
 
 <script>
   var HINTS = {
-    static: 'nginx serving your files, with SPA-friendly try_files and gzip already configured.',
-    php: 'Apache + PHP-FPM in one container, mod_rewrite on, php.ini editable from the file manager.',
-    wordpress: 'WordPress plus a dedicated MariaDB container. The database credentials are generated for you.',
-    node: 'Your app runs from /app. Install and start commands run inside the container.'
+    static: 'Plain HTML, CSS and images - or the output of a site builder. Served by nginx.',
+    php: 'Runs PHP files. Good for a custom script or an older application.',
+    wordpress: 'A complete WordPress install with its own database, ready to log in to.',
+    node: 'Runs a Node.js application from your own code.'
   };
 
   function updateType() {
@@ -161,7 +250,6 @@
       el.style.display = applies ? '' : 'none';
       el.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = !applies; });
     });
-    // Node uses its own version select; keep a single runtime_version field on submit.
     var nodeSel = document.getElementById('node_version');
     var phpSel = document.getElementById('php_version');
     if (nodeSel) nodeSel.name = (type === 'node') ? 'runtime_version' : 'node_runtime_version';
@@ -170,6 +258,39 @@
 
   document.getElementById('name').addEventListener('input', function (e) {
     e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+  });
+
+  /* ------------------------------------------------- port checking ---- */
+  var portField = document.getElementById('port');
+  var feedback = document.getElementById('port-feedback');
+  var portTimer = null;
+
+  portField.addEventListener('input', function () {
+    clearTimeout(portTimer);
+    feedback.innerHTML = '';
+    if (!portField.value.trim()) return;
+    portTimer = setTimeout(async function () {
+      try {
+        var res = await fetch('/api/ports/check?port=' + encodeURIComponent(portField.value),
+          { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+        feedback.innerHTML = res.ok
+          ? '<div class="field-ok">Port ' + res.port + ' is free.</div>'
+          : '<div class="field-bad">' + HP.escapeHtml(res.error) + '</div>';
+      } catch (_) { /* transient */ }
+    }, 400);
+  });
+
+  document.getElementById('suggest-port').addEventListener('click', async function () {
+    try {
+      var res = await fetch('/api/ports/suggest', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.json(); });
+      if (res.port) {
+        portField.value = res.port;
+        feedback.innerHTML = '<div class="field-ok">Port ' + res.port + ' is free.</div>';
+      } else {
+        feedback.innerHTML = '<div class="field-bad">' + HP.escapeHtml(res.error || 'No free port') + '</div>';
+      }
+    } catch (err) { HP.toast('Could not suggest a port', 'error'); }
   });
 
   updateType();

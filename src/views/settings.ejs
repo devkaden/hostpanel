@@ -20,6 +20,7 @@
           <div class="field">
             <label for="panel_title">Panel name</label>
             <input id="panel_title" name="panel_title" type="text" value="<%= settings.panel_title %>">
+            <div class="hint">Shown top-left and in the browser tab.</div>
           </div>
           <div class="field">
             <label for="host_ip">Host IP for reverse proxying</label>
@@ -32,6 +33,29 @@
               If NPMplus runs on another host, this must be an address that host can reach.
             </div>
           </div>
+          <div class="field">
+            <label for="panel_port">
+              Panel port
+              <span class="help" data-help="The port this control panel itself listens on. Changing it takes effect after a restart, and the address in your browser changes with it."></span>
+            </label>
+            <input id="panel_port" name="panel_port" type="number" min="1" max="65535" value="<%= settings.panel_port %>" placeholder="<%= effectivePanelPort %> (from .env)">
+            <div class="hint">Leave blank to keep using the value from <code class="inline">.env</code>. Restart the panel after changing it.</div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="port_range_start">
+                Site ports from
+                <span class="help" data-help="The pool HostPanel picks from when it assigns a port to a new site."></span>
+              </label>
+              <input id="port_range_start" name="port_range_start" type="number" min="1024" max="65535" value="<%= portRange.start %>">
+            </div>
+            <div class="field">
+              <label for="port_range_end">to</label>
+              <input id="port_range_end" name="port_range_end" type="number" min="1024" max="65535" value="<%= portRange.end %>">
+            </div>
+          </div>
+
           <div class="check">
             <input type="checkbox" id="allow_host_shell" name="allow_host_shell" <%= settings.allow_host_shell === '1' ? 'checked' : '' %>>
             <div>
@@ -40,6 +64,49 @@
                 Gives admins a root-level shell on this machine through the browser.
                 <% if (!hostShellSupported) { %>Currently unavailable: the optional <code class="inline">node-pty</code> package is not installed.<% } %>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Appearance</h2>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="theme">Colour theme</label>
+              <select id="theme" name="theme">
+                <option value="system" <%= settings.theme === 'system' ? 'selected' : '' %>>Match the device</option>
+                <option value="dark" <%= settings.theme === 'dark' ? 'selected' : '' %>>Always dark</option>
+                <option value="light" <%= settings.theme === 'light' ? 'selected' : '' %>>Always light</option>
+              </select>
+              <div class="hint">Anyone can override this for themselves with the toggle in the top bar.</div>
+            </div>
+            <div class="field">
+              <label for="ui_mode">
+                Default detail level
+                <span class="help" data-help="Simple hides container names, images, resource limits and other Docker internals. Everyone can switch for themselves at any time."></span>
+              </label>
+              <select id="ui_mode" name="ui_mode">
+                <option value="simple" <%= settings.ui_mode === 'simple' ? 'selected' : '' %>>Simple</option>
+                <option value="advanced" <%= settings.ui_mode === 'advanced' ? 'selected' : '' %>>Advanced</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="brand_accent">Accent colour</label>
+              <div style="display:flex;gap:.5rem;align-items:center">
+                <input type="color" id="accent_picker" value="<%= settings.brand_accent || '#4f8cff' %>" style="width:44px;padding:2px;height:36px">
+                <input id="brand_accent" name="brand_accent" type="text" value="<%= settings.brand_accent || '#4f8cff' %>" placeholder="#4f8cff">
+              </div>
+            </div>
+            <div class="field">
+              <label for="brand_logo">
+                Logo
+                <span class="help" data-help="A small square image for the top-left corner. Paste a path like /static/logo.png, or a data: URL."></span>
+              </label>
+              <input id="brand_logo" name="brand_logo" type="text" value="<%= settings.brand_logo %>" placeholder="/static/logo.png">
             </div>
           </div>
         </div>
@@ -137,6 +204,40 @@
 
       <div class="card">
         <div class="card-head">
+          <h2>Saved presets</h2>
+          <span class="muted small"><%= templates.length %></span>
+        </div>
+        <% if (!templates.length) { %>
+          <p class="muted small mb0">None yet. Open any site, press <strong>Save as preset</strong>, and its
+            setup becomes a starting point for the next one.</p>
+        <% } else { %>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th style="width:90px">Type</th><th style="width:70px"></th></tr></thead>
+              <tbody>
+                <% templates.forEach(function (t) { %>
+                  <tr>
+                    <td><%= t.name %><% if (t.description) { %><div class="muted small"><%= t.description %></div><% } %></td>
+                    <td><%= t.type %></td>
+                    <td class="right">
+                      <button class="btn btn-sm btn-danger" onclick="deleteTemplate(<%= t.id %>, <%= JSON.stringify(t.name) %>)">Del</button>
+                    </td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="card">
+        <h2>Setup guide</h2>
+        <p class="muted small">Walks through the host address, the reverse proxy connection and your first site.</p>
+        <button class="btn" type="button" id="rerun-setup">Run the setup guide again</button>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h2>NPMplus proxy hosts</h2>
           <button class="btn btn-sm" id="load-hosts">Load</button>
         </div>
@@ -147,6 +248,38 @@
 </div>
 
 <script>
+  // Keep the colour picker and the hex field in step.
+  var picker = document.getElementById('accent_picker');
+  var hex = document.getElementById('brand_accent');
+  if (picker && hex) {
+    picker.addEventListener('input', function () {
+      hex.value = picker.value;
+      document.documentElement.style.setProperty('--accent', picker.value);
+    });
+    hex.addEventListener('input', function () {
+      if (/^#[0-9a-f]{6}$/i.test(hex.value)) {
+        picker.value = hex.value;
+        document.documentElement.style.setProperty('--accent', hex.value);
+      }
+    });
+  }
+
+  async function deleteTemplate(id, name) {
+    if (!confirm('Delete the preset "' + name + '"? Sites created from it are not affected.')) return;
+    try {
+      await HP.api('/api/templates/' + id + '/delete');
+      HP.toast('Preset deleted', 'ok');
+      setTimeout(function () { location.reload(); }, 400);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  document.getElementById('rerun-setup').addEventListener('click', async function () {
+    try {
+      var res = await HP.api('/setup/restart', { body: {} });
+      location.href = res.redirect || '/setup';
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
   document.getElementById('detect-ip').addEventListener('click', async function () {
     try {
       var res = await HP.api('/settings/detect-ip', { body: {} });

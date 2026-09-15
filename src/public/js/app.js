@@ -133,5 +133,60 @@
     return Math.round(diff / 86400) + 'd ago';
   }
 
-  window.HP = { api, toast, openModal, closeModal, bytes, copy, escapeHtml, relTime, CSRF };
+  /* ------------------------------------------------ interface mode ---- */
+  function setMode(mode) {
+    var value = mode === 'advanced' ? 'advanced' : 'simple';
+    document.documentElement.setAttribute('data-mode', value);
+    document.body.className = 'mode-' + value;
+    try { localStorage.setItem('hp-mode', value); } catch (e) { /* private mode */ }
+    document.querySelectorAll('[data-mode-set]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-mode-set') === value));
+    });
+  }
+
+  function currentMode() {
+    return document.documentElement.getAttribute('data-mode') === 'advanced' ? 'advanced' : 'simple';
+  }
+
+  /* ------------------------------------------------------- theming ----- */
+  function setTheme(theme) {
+    var resolved = theme;
+    if (theme === 'system') {
+      resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', resolved);
+    try { localStorage.setItem('hp-theme', theme); } catch (e) { /* private mode */ }
+  }
+
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    setMode(currentMode());
+
+    var toggle = document.getElementById('theme-toggle');
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        setTheme(currentTheme() === 'light' ? 'dark' : 'light');
+      });
+    }
+
+    document.querySelectorAll('[data-mode-set]').forEach(function (b) {
+      b.addEventListener('click', function () { setMode(b.getAttribute('data-mode-set')); });
+    });
+
+    // Help bubbles are reachable by keyboard, not just hover.
+    document.querySelectorAll('.help').forEach(function (h) {
+      if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '0');
+      if (!h.hasAttribute('role')) h.setAttribute('role', 'note');
+      if (!h.textContent.trim()) h.textContent = '?';
+    });
+  });
+
+  window.HP = {
+    api, toast, openModal, closeModal, bytes, copy, escapeHtml, relTime, CSRF,
+    setMode, currentMode, setTheme, currentTheme,
+  };
 })();

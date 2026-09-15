@@ -175,7 +175,7 @@
         '<td class="right"><div class="file-actions">' +
           (item.editable ? '<button class="btn btn-sm act-edit" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Edit</button>' : '') +
           (/\.zip$/i.test(item.name) ? '<button class="btn btn-sm act-extract" data-path="' + HP.escapeHtml(item.path) + '">Extract</button>' : '') +
-          '<a class="btn btn-sm" href="/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path) + (isDir ? '&zip=1' : '') + '">' + (isDir ? 'Zip' : 'Get') + '</a>' +
+          '<a class="btn btn-sm" href="/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path) + (isDir ? '&zip=1' : '') + '">' + (isDir ? 'Download zip' : 'Download') + '</a>' +
           '<button class="btn btn-sm act-rename" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Rename</button>' +
           '<button class="btn btn-sm btn-danger act-delete" data-path="' + HP.escapeHtml(item.path) + '">Del</button>' +
         '</div></td></tr>';

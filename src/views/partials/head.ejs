@@ -7,5 +7,33 @@
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%234f8cff'/><path d='M9 22V10h3.2v4.6h6.6V10H22v12h-3.2v-4.7h-6.6V22z' fill='white'/></svg>">
   <meta name="csrf-token" content="<%= csrfToken %>">
+  <% if (typeof brandAccent !== 'undefined' && brandAccent) { %>
+    <style>:root { --accent: <%= brandAccent %>; }</style>
+  <% } %>
+  <script>
+    /* Resolve theme and interface mode before first paint, so the page never
+       flashes the wrong colours. Both fall back to the server-side default. */
+    (function () {
+      var serverTheme = <%- jsonScript(typeof themeSetting !== 'undefined' ? themeSetting : 'system') %>;
+      var serverMode = <%- jsonScript(typeof uiModeSetting !== 'undefined' ? uiModeSetting : 'simple') %>;
+      var theme = serverTheme, mode = serverMode;
+      try {
+        theme = localStorage.getItem('hp-theme') || serverTheme;
+        mode = localStorage.getItem('hp-mode') || serverMode;
+      } catch (e) { /* private mode */ }
+
+      if (theme === 'system') {
+        theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+          ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-mode', mode);
+    })();
+  </script>
 </head>
-<body>
+<body class="mode-simple">
+<script>
+  // body.className is set here rather than inline so the class always matches
+  // the mode resolved above, even when localStorage disagrees with the server.
+  document.body.className = 'mode-' + (document.documentElement.getAttribute('data-mode') || 'simple');
+</script>

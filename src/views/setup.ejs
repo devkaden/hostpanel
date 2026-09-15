@@ -1,0 +1,247 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap wrap-narrow">
+
+  <div class="page-head">
+    <div>
+      <h1>Let's get you set up</h1>
+      <p class="sub">Three things, then you can create your first site. You can change any of it later in Settings.</p>
+    </div>
+  </div>
+
+  <div class="wiz-steps">
+    <div class="wiz-step active" data-step-tab="1"><span class="n">1</span> This server</div>
+    <div class="wiz-step" data-step-tab="2"><span class="n">2</span> Reverse proxy</div>
+    <div class="wiz-step" data-step-tab="3"><span class="n">3</span> First site</div>
+  </div>
+
+  <!-- ------------------------------------------------------ step 1 --- -->
+  <section class="card" data-step="1">
+    <h2>Where does traffic come in?</h2>
+    <p class="muted small">
+      Every site you create runs in its own container on this machine, listening on
+      its own port. Your reverse proxy sends visitors to those ports. For that to
+      work, it needs an address it can reach this machine on.
+    </p>
+
+    <div class="field mt">
+      <label for="host_ip">
+        This server's address
+        <span class="help" data-help="Usually the LAN IP of this machine. Not 127.0.0.1 - your reverse proxy runs in its own container and cannot reach that."></span>
+      </label>
+      <div style="display:flex;gap:.5rem">
+        <input id="host_ip" type="text" value="<%= settings.host_ip %>" placeholder="192.168.0.235">
+        <button class="btn" type="button" id="detect">Detect</button>
+      </div>
+      <div class="hint">Detected on this machine: <code class="inline"><%= detectedIp || 'nothing found' %></code></div>
+    </div>
+
+    <div class="field">
+      <label for="panel_title">What should this panel be called?</label>
+      <input id="panel_title" type="text" value="<%= settings.panel_title %>" placeholder="HostPanel">
+      <div class="hint">Shown in the top-left corner and the browser tab.</div>
+    </div>
+
+    <div class="alert <%= docker.ok ? 'alert-ok' : 'alert-error' %> mb0">
+      <% if (docker.ok) { %>
+        Docker is connected and working.
+      <% } else { %>
+        <strong>Docker is not reachable:</strong> <%= docker.error %><br>
+        Sites cannot be created until this is fixed. Check <code class="inline">systemctl status docker</code>.
+      <% } %>
+    </div>
+
+    <div class="btn-row mt">
+      <button class="btn btn-primary" data-next="2">Continue</button>
+      <button class="btn btn-ghost" id="skip">Skip setup</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------ step 2 --- -->
+  <section class="card" data-step="2" style="display:none">
+    <h2>Connect your reverse proxy</h2>
+    <p class="muted small">
+      HostPanel can talk to <strong>NPMplus</strong> (or Nginx Proxy Manager) for you. When it is
+      connected, creating a site with a domain also sets up the proxy and requests
+      an HTTPS certificate automatically. Skip this and your sites still work &mdash;
+      you just reach them by port and set up the proxy yourself.
+    </p>
+
+    <div class="field mt">
+      <label for="npmplus_url">
+        Admin address
+        <span class="help" data-help="The web address you use to log in to NPMplus. By default that is https://your-server:81 - note the https and the port."></span>
+      </label>
+      <input id="npmplus_url" type="text" value="<%= settings.npmplus_url %>" placeholder="https://npm.example.com:81">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="npmplus_email">Your NPMplus login email</label>
+        <input id="npmplus_email" type="text" value="<%= settings.npmplus_email %>" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="npmplus_password">Your NPMplus password</label>
+        <input id="npmplus_password" type="password" value="<%= settings.npmplus_password %>" autocomplete="new-password">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="npmplus_le_email">
+        Email for certificate notices
+        <span class="help" data-help="Let's Encrypt sends renewal warnings here. It can be the same as your login email."></span>
+      </label>
+      <input id="npmplus_le_email" type="text" value="<%= settings.npmplus_le_email %>" placeholder="you@example.com">
+    </div>
+
+    <div class="check">
+      <input type="checkbox" id="npmplus_insecure" <%= settings.npmplus_insecure === '1' ? 'checked' : '' %>>
+      <div>
+        <label for="npmplus_insecure">My NPMplus uses a self-signed certificate</label>
+        <div class="hint">Tick this if the admin page shows a browser security warning.</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" type="button" id="test">Test connection</button>
+    </div>
+    <div id="test-result" class="mt"></div>
+
+    <div class="btn-row mt">
+      <button class="btn" data-next="1">Back</button>
+      <button class="btn btn-primary" data-next="3">Continue</button>
+      <button class="btn btn-ghost" data-next="3" id="skip-proxy">Set this up later</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------ step 3 --- -->
+  <section class="card" data-step="3" style="display:none">
+    <h2>You're ready</h2>
+    <p class="muted small">Here is what happens when you create a site:</p>
+
+    <ol class="steps" style="max-width:none;margin-top:1rem">
+      <li><strong>You pick a type</strong> &mdash; a plain website, PHP, WordPress, or a Node.js app.</li>
+      <li><strong>HostPanel builds it</strong> &mdash; a container starts, with your files in a folder you can browse and edit right here.</li>
+      <li><strong>Your domain gets wired up</strong> &mdash; if you connected a reverse proxy above, the domain and HTTPS certificate are handled for you.</li>
+    </ol>
+
+    <p class="muted small mt">
+      Everything else &mdash; file manager, logs, a terminal, scheduled tasks &mdash; is on the
+      site's own page once it exists.
+    </p>
+
+    <% if (siteCount > 0) { %>
+      <div class="alert alert-ok mt">You already have <%= siteCount %> site<%= siteCount === 1 ? '' : 's' %>.</div>
+    <% } %>
+
+    <div class="btn-row mt">
+      <button class="btn" data-next="2">Back</button>
+      <a class="btn btn-primary" href="/sites/new" id="create-first">Create my first site</a>
+      <button class="btn btn-ghost" id="finish">Finish, take me to the dashboard</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  function collect() {
+    return {
+      host_ip: document.getElementById('host_ip').value,
+      panel_title: document.getElementById('panel_title').value,
+      npmplus_url: document.getElementById('npmplus_url').value,
+      npmplus_email: document.getElementById('npmplus_email').value,
+      npmplus_password: document.getElementById('npmplus_password').value,
+      npmplus_le_email: document.getElementById('npmplus_le_email').value,
+      npmplus_insecure: document.getElementById('npmplus_insecure').checked
+    };
+  }
+
+  async function save() {
+    try { await HP.api('/setup/save', { body: collect() }); }
+    catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  function show(step) {
+    document.querySelectorAll('[data-step]').forEach(function (el) {
+      el.style.display = el.getAttribute('data-step') === String(step) ? '' : 'none';
+    });
+    document.querySelectorAll('[data-step-tab]').forEach(function (el) {
+      var n = parseInt(el.getAttribute('data-step-tab'), 10);
+      el.classList.toggle('active', n === step);
+      el.classList.toggle('done', n < step);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  document.querySelectorAll('[data-next]').forEach(function (b) {
+    b.addEventListener('click', async function () {
+      await save();
+      show(parseInt(b.getAttribute('data-next'), 10));
+    });
+  });
+
+  document.getElementById('detect').addEventListener('click', async function () {
+    try {
+      var res = await HP.api('/settings/detect-ip', { body: {} });
+      if (res.ip) {
+        document.getElementById('host_ip').value = res.ip;
+        HP.toast('Found ' + res.ip, 'ok');
+      } else {
+        HP.toast('Could not detect an address - enter it manually', 'error');
+      }
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  document.getElementById('test').addEventListener('click', async function () {
+    var btn = this;
+    var box = document.getElementById('test-result');
+    btn.disabled = true;
+    box.innerHTML = '<div class="alert alert-info mb0">Contacting your reverse proxy...</div>';
+    try {
+      var res = await HP.api('/settings/npmplus/test', { body: collect() });
+      if (res.ok) {
+        box.innerHTML = '<div class="alert alert-ok mb0"><strong>Connected.</strong> ' +
+          'Found ' + res.proxyHosts + ' existing proxy host(s). ' +
+          'Domains and certificates will be handled for you.</div>';
+        // A successful test is the only thing that should switch the integration on.
+        await HP.api('/setup/save', { body: Object.assign(collect(), { npmplus_enabled: true }) });
+      } else {
+        var STEP = {
+          reach: 'Could not reach it',
+          auth: 'Could not sign in',
+          read: 'Signed in, but could not read the proxy hosts'
+        };
+        box.innerHTML = '<div class="alert alert-error mb0"><strong>' +
+          HP.escapeHtml(STEP[res.step] || 'Failed') + '.</strong><br>' +
+          HP.escapeHtml(res.error) + '</div>';
+      }
+    } catch (err) {
+      box.innerHTML = '<div class="alert alert-error mb0">' + HP.escapeHtml(err.message) + '</div>';
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('skip-proxy').addEventListener('click', async function () {
+    await HP.api('/setup/save', { body: Object.assign(collect(), { npmplus_enabled: false }) });
+  });
+
+  async function finish(url) {
+    await save();
+    try {
+      var res = await HP.api('/setup/finish', { body: {} });
+      location.href = url || res.redirect || '/';
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  document.getElementById('finish').addEventListener('click', function () { finish('/'); });
+  document.getElementById('create-first').addEventListener('click', function (e) {
+    e.preventDefault();
+    finish('/sites/new');
+  });
+  document.getElementById('skip').addEventListener('click', async function () {
+    try {
+      var res = await HP.api('/setup/skip', { body: {} });
+      location.href = res.redirect || '/';
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+</script>
+<%- include('partials/foot') %>

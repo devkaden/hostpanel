@@ -7,7 +7,7 @@ const session = require('express-session');
 const cookieParser = require('cookie-parser');
 
 const config = require('./config');
-const { db, getSetting, setSetting, allSettings } = require('./db');
+const { db, getSetting, setSetting, getNumericSetting, allSettings } = require('./db');
 const SqliteStore = require('./session-store');
 const auth = require('./auth');
 const docker = require('./docker');
@@ -108,6 +108,10 @@ app.use((req, res, next) => {
   res.locals.currentPath = req.path;
   res.locals.flash = null;
   res.locals.hostShell = terminal.hostShellAvailable();
+  res.locals.brandAccent = getSetting('brand_accent') || '';
+  res.locals.brandLogo = getSetting('brand_logo') || '';
+  res.locals.themeSetting = getSetting('theme') || 'system';
+  res.locals.uiModeSetting = getSetting('ui_mode') || 'simple';
   next();
 });
 
@@ -116,6 +120,23 @@ app.use((req, res, next) => {
  * ------------------------------------------------------------------ */
 app.use(require('./routes/auth'));
 app.use(auth.requireAuth);
+
+// A brand new install drops the first administrator straight into the wizard.
+app.use((req, res, next) => {
+  if (
+    req.method === 'GET' &&
+    req.user &&
+    req.user.role === 'admin' &&
+    getSetting('setup_complete') !== '1' &&
+    !auth.wantsJson(req) &&
+    req.path === '/'
+  ) {
+    return res.redirect('/setup');
+  }
+  return next();
+});
+
+app.use(require('./routes/setup'));
 app.use(require('./routes/dashboard'));
 app.use(require('./routes/sites'));
 app.use(require('./routes/files'));
@@ -164,6 +185,16 @@ async function boot() {
       );
     } catch (_) {
       /* non-fatal */
+    }
+  }
+
+  // An install that predates the wizard, or already has sites, should not be
+  // sent through first-run setup.
+  if (getSetting('setup_complete') !== '1') {
+    const hasSites = db.prepare('SELECT COUNT(*) AS n FROM sites').get().n > 0;
+    if (hasSites || npmplus.isConfigured()) {
+      setSetting('setup_complete', '1');
+      console.log('[boot] existing install detected - skipping the first-run wizard');
     }
   }
 
@@ -219,8 +250,27 @@ async function boot() {
   const server = http.createServer(app);
   terminal.attach(server, sessionMiddleware);
 
-  server.listen(config.port, config.bindAddress, () => {
-    console.log(`[boot] ${getSetting('panel_title')} listening on http://${config.bindAddress}:${config.port}`);
+  // A port set in Settings wins over the one in .env.
+  const listenPort = getNumericSetting('panel_port', config.port);
+  server.listen(listenPort, config.bindAddress, () => {
+    console.log(
+      `[boot] ${getSetting('panel_title')} listening on http://${config.bindAddress}:${listenPort}`
+    );
+    if (listenPort !== config.port) {
+      console.log(`[boot] port ${listenPort} comes from Settings, overriding .env (${config.port})`);
+    }
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `\n[boot] Port ${listenPort} is already in use.\n` +
+          '       Free it, or change the panel port with:\n' +
+          `       sqlite3 ${config.dbFile} "UPDATE settings SET value='' WHERE key='panel_port'"\n`
+      );
+      process.exit(1);
+    }
+    throw err;
   });
 
   const shutdown = (signal) => {

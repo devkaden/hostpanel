@@ -11,12 +11,64 @@ const config = require('./config');
  */
 
 function baseLabels(site) {
-  return {
+  const labels = {
     'hostpanel.managed': 'true',
     'hostpanel.site': site.name,
     'hostpanel.site_id': String(site.id),
     'hostpanel.type': site.type,
   };
+  // User-supplied labels, e.g. for Traefik or Watchtower. They cannot
+  // overwrite the hostpanel.* labels the panel relies on.
+  try {
+    const extra = JSON.parse(site.extra_labels || '{}');
+    if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+      for (const [key, value] of Object.entries(extra)) {
+        if (!String(key).startsWith('hostpanel.')) labels[String(key)] = String(value);
+      }
+    }
+  } catch (_) {
+    /* invalid JSON is ignored rather than breaking the container */
+  }
+  return labels;
+}
+
+/** The port the server inside the container listens on. */
+function appPortFor(site) {
+  const parsed = parseInt(site.app_port, 10);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return parsed;
+  return site.type === 'node' ? 3000 : 80;
+}
+
+/**
+ * Extra bind mounts, one per line as "host_path:container_path[:ro]".
+ * Host paths are restricted to the site's own directory so a standard user
+ * cannot mount /etc or the Docker socket into their container.
+ */
+function extraBinds(site, dirs) {
+  const out = [];
+  const raw = String(site.extra_volumes || '').trim();
+  if (!raw) return out;
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(':');
+    if (parts.length < 2) continue;
+
+    const mode = parts.length > 2 ? parts[2] : '';
+    const containerPath = parts[1];
+    let hostPath = parts[0];
+
+    // A relative path is taken as relative to the site directory.
+    if (!path.isAbsolute(hostPath)) hostPath = path.join(dirs.root, hostPath);
+    const resolved = path.resolve(hostPath);
+    const rel = path.relative(path.resolve(dirs.root), resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) continue; // outside the site dir
+
+    if (!containerPath.startsWith('/')) continue;
+    out.push(`${resolved}:${containerPath}${mode === 'ro' ? ':ro' : ''}`);
+  }
+  return out;
 }
 
 function hostConfigCommon(site, binds, portBindings, networkName) {
@@ -49,6 +101,10 @@ function envArray(site, extra = {}) {
 }
 
 function imageFor(site) {
+  // An explicit image overrides the type default entirely.
+  if (site.custom_image && String(site.custom_image).trim()) {
+    return String(site.custom_image).trim();
+  }
   switch (site.type) {
     case 'static':
       return 'nginx:alpine';
@@ -72,7 +128,16 @@ function dbContainerName(site) {
 }
 
 function networkName(site) {
+  // An existing user-managed network can be used instead of the per-site one.
+  if (site.docker_network && String(site.docker_network).trim()) {
+    return String(site.docker_network).trim();
+  }
   return `${config.networkPrefix}${site.id}`;
+}
+
+/** True when the site uses a network the panel created and should clean up. */
+function ownsNetwork(site) {
+  return !(site.docker_network && String(site.docker_network).trim());
 }
 
 function buildSpec(site, dirs) {
@@ -80,28 +145,29 @@ function buildSpec(site, dirs) {
   const net = networkName(site);
   const labels = baseLabels(site);
   const bindHost = process.env.PUBLISH_ADDRESS || '0.0.0.0';
+  const appPort = appPortFor(site);
+  const publish = { [`${appPort}/tcp`]: [{ HostIp: bindHost, HostPort: String(site.port) }] };
+  const expose = { [`${appPort}/tcp`]: {} };
+  const extra = extraBinds(site, dirs);
 
   if (site.type === 'static') {
     const binds = [
       `${dirs.app}:/usr/share/nginx/html:ro`,
       `${dirs.logs}:/var/log/nginx`,
       `${path.join(dirs.conf, 'nginx-site.conf')}:/etc/nginx/conf.d/default.conf:ro`,
+      ...extra,
     ];
     return {
       name,
       image: imageFor(site),
+      appPort,
       create: {
         name,
         Image: imageFor(site),
         Labels: labels,
         Env: envArray(site),
-        ExposedPorts: { '80/tcp': {} },
-        HostConfig: hostConfigCommon(
-          site,
-          binds,
-          { '80/tcp': [{ HostIp: bindHost, HostPort: String(site.port) }] },
-          net
-        ),
+        ExposedPorts: expose,
+        HostConfig: hostConfigCommon(site, binds, publish, net),
       },
     };
   }
@@ -111,10 +177,14 @@ function buildSpec(site, dirs) {
       `${dirs.app}:/var/www/html`,
       `${dirs.logs}:/var/log/apache2`,
       `${path.join(dirs.conf, 'php-custom.ini')}:/usr/local/etc/php/conf.d/zz-hostpanel.ini:ro`,
+      `${path.join(dirs.conf, 'apache-ports.conf')}:/etc/apache2/ports.conf:ro`,
+      `${path.join(dirs.conf, 'apache-vhost.conf')}:/etc/apache2/sites-enabled/000-default.conf:ro`,
+      ...extra,
     ];
     return {
       name,
       image: imageFor(site),
+      appPort,
       create: {
         name,
         Image: imageFor(site),
@@ -125,13 +195,8 @@ function buildSpec(site, dirs) {
           '-c',
           'a2enmod rewrite remoteip >/dev/null 2>&1 || true; exec apache2-foreground',
         ],
-        ExposedPorts: { '80/tcp': {} },
-        HostConfig: hostConfigCommon(
-          site,
-          binds,
-          { '80/tcp': [{ HostIp: bindHost, HostPort: String(site.port) }] },
-          net
-        ),
+        ExposedPorts: expose,
+        HostConfig: hostConfigCommon(site, binds, publish, net),
       },
     };
   }
@@ -153,11 +218,15 @@ function buildSpec(site, dirs) {
       `${dirs.app}:/var/www/html`,
       `${dirs.logs}:/var/log/apache2`,
       `${path.join(dirs.conf, 'php-custom.ini')}:/usr/local/etc/php/conf.d/zz-hostpanel.ini:ro`,
+      `${path.join(dirs.conf, 'apache-ports.conf')}:/etc/apache2/ports.conf:ro`,
+      `${path.join(dirs.conf, 'apache-vhost.conf')}:/etc/apache2/sites-enabled/000-default.conf:ro`,
+      ...extra,
     ];
 
     return {
       name,
       image: imageFor(site),
+      appPort,
       dbName,
       dbImage: config.mariadbImage,
       dbCreate: {
@@ -188,27 +257,23 @@ function buildSpec(site, dirs) {
           WORDPRESS_DB_PASSWORD: site.db_password,
           WORDPRESS_CONFIG_EXTRA: configExtra,
         }),
-        // No Cmd override here on purpose: the WordPress entrypoint only runs
-        // its first-boot setup when argv[0] starts with "apache2", and the
-        // official image already enables mod_rewrite and mod_remoteip.
-        ExposedPorts: { '80/tcp': {} },
-        HostConfig: hostConfigCommon(
-          site,
-          appBinds,
-          { '80/tcp': [{ HostIp: bindHost, HostPort: String(site.port) }] },
-          net
-        ),
+        // No Cmd override: the WordPress entrypoint only runs its first-boot
+        // setup when argv[0] starts with "apache2", and the official image
+        // already enables mod_rewrite and mod_remoteip. The listen port is
+        // changed through the mounted ports.conf and vhost instead.
+        ExposedPorts: expose,
+        HostConfig: hostConfigCommon(site, appBinds, publish, net),
       },
     };
   }
 
   if (site.type === 'node') {
-    const appPort = site.app_port || 3000;
     const start = (site.start_command || 'npm start').trim();
-    const binds = [`${dirs.app}:/app`, `${dirs.logs}:/var/log/app`];
+    const binds = [`${dirs.app}:/app`, `${dirs.logs}:/var/log/app`, ...extra];
     return {
       name,
       image: imageFor(site),
+      appPort,
       create: {
         name,
         Image: imageFor(site),
@@ -216,13 +281,8 @@ function buildSpec(site, dirs) {
         WorkingDir: '/app',
         Env: envArray(site, { PORT: String(appPort), NODE_ENV: 'production', HOST: '0.0.0.0' }),
         Cmd: ['sh', '-c', start],
-        ExposedPorts: { [`${appPort}/tcp`]: {} },
-        HostConfig: hostConfigCommon(
-          site,
-          binds,
-          { [`${appPort}/tcp`]: [{ HostIp: bindHost, HostPort: String(site.port) }] },
-          net
-        ),
+        ExposedPorts: expose,
+        HostConfig: hostConfigCommon(site, binds, publish, net),
       },
     };
   }
@@ -233,8 +293,11 @@ function buildSpec(site, dirs) {
 /* ------------------------------------------------------------------ *
  * Seed files written into a brand new site directory
  * ------------------------------------------------------------------ */
-const DEFAULT_NGINX_CONF = `server {
-    listen 80;
+function nginxConf(appPort) {
+  return `# Managed by HostPanel. Edit freely - your changes are kept.
+# (The panel only rewrites this file while it still matches what it generated.)
+server {
+    listen ${appPort};
     server_name _;
     root /usr/share/nginx/html;
     index index.html index.htm;
@@ -258,6 +321,37 @@ const DEFAULT_NGINX_CONF = `server {
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
 }
 `;
+}
+
+function apachePortsConf(appPort) {
+  return `# Managed by HostPanel. Edit freely - your changes are kept.
+Listen ${appPort}
+
+<IfModule ssl_module>
+    Listen 443
+</IfModule>
+<IfModule mod_gnutls.c>
+    Listen 443
+</IfModule>
+`;
+}
+
+function apacheVhostConf(appPort) {
+  return `# Managed by HostPanel. Edit freely - your changes are kept.
+<VirtualHost *:${appPort}>
+    DocumentRoot /var/www/html
+
+    <Directory /var/www/html>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+`;
+}
 
 const DEFAULT_PHP_INI = `; Managed by HostPanel - edit here, then restart the site.
 upload_max_filesize = 128M
@@ -366,8 +460,13 @@ module.exports = {
   dbContainerName,
   networkName,
   envArray,
-  DEFAULT_NGINX_CONF,
+  nginxConf,
+  apachePortsConf,
+  apacheVhostConf,
   DEFAULT_PHP_INI,
+  appPortFor,
+  extraBinds,
+  ownsNetwork,
   seedIndexHtml,
   seedIndexPhp,
   seedNodeApp,

@@ -3,12 +3,13 @@
 const express = require('express');
 
 const config = require('../config');
-const { db, audit } = require('../db');
+const { db, audit, getSetting } = require('../db');
 const sites = require('../sites');
 const docker = require('../docker');
 const npmplus = require('../npmplus');
 const tpl = require('../site-templates');
 const terminal = require('../terminal');
+const templates = require('../templates');
 const { loadSite, wrap } = require('../middleware');
 const { humanBytes } = require('../netutil');
 
@@ -28,6 +29,7 @@ router.get('/sites/new', (req, res) => {
         ? db.prepare('SELECT id, username FROM users WHERE active = 1 ORDER BY username').all()
         : [],
     npmplusOn: npmplus.isEnabled(),
+    templates: templates.list(),
   });
 });
 
@@ -36,6 +38,19 @@ router.post(
   wrap(async (req, res) => {
     let site;
     try {
+      // A preset fills in anything the form left blank.
+      if (req.body.template_id) req.body = templates.applyTo(req.body, req.body.template_id);
+
+      // A hand-picked host port has to clear the same checks as an edit.
+      if (String(req.body.port || '').trim()) {
+        const verdict = await sites.checkHostPort(req.body.port, null);
+        if (!verdict.ok) {
+          const err = new Error(verdict.error);
+          err.validation = [verdict.error];
+          throw err;
+        }
+        req.body.port = verdict.port;
+      }
       site = sites.createSiteRecord(req.body, req.user);
     } catch (err) {
       return res.status(400).render('site-new', {
@@ -48,6 +63,7 @@ router.post(
             ? db.prepare('SELECT id, username FROM users WHERE active = 1 ORDER BY username').all()
             : [],
         npmplusOn: npmplus.isEnabled(),
+        templates: templates.list(),
       });
     }
 
@@ -61,6 +77,32 @@ router.post(
       .catch((err) => console.error(`[sites] provisioning ${site.name} failed:`, err.message));
 
     return res.redirect(`/sites/${site.id}?provisioning=1`);
+  })
+);
+
+/** Live port validation for the new-site and settings forms. */
+router.get(
+  '/api/ports/check',
+  wrap(async (req, res) => {
+    const excludeId = req.query.site ? parseInt(req.query.site, 10) : null;
+    if (excludeId) {
+      const site = sites.getSite(excludeId);
+      if (!site || !sites.canAccess(req.user, site)) {
+        return res.status(403).json({ ok: false, error: 'Access denied' });
+      }
+    }
+    return res.json(await sites.checkHostPort(req.query.port, excludeId));
+  })
+);
+
+router.get(
+  '/api/ports/suggest',
+  wrap(async (req, res) => {
+    try {
+      res.json({ port: sites.allocatePort(), range: sites.portRange() });
+    } catch (err) {
+      res.status(409).json({ error: err.message });
+    }
   })
 );
 
@@ -104,6 +146,7 @@ router.get(
       npmplusOn: npmplus.isEnabled(),
       npmplusConfigured: npmplus.isConfigured(),
       provisioning: req.query.provisioning === '1',
+      hostIp: getSetting('host_ip') || '',
       config,
       hostShell: terminal.hostShellAvailable(),
       owners:
@@ -125,6 +168,10 @@ router.get('/sites/:id/progress', loadSite, (req, res) => {
     'X-Accel-Buffering': 'no',
   });
   res.flushHeaders();
+
+  // Tell the client up front whether anything is actually running, so it can
+  // decide whether the finish is worth acting on.
+  res.write(`event: state\ndata: ${JSON.stringify({ busy: sites.isBusy(req.site.id) })}\n\n`);
 
   let sent = 0;
   let finished = false;
@@ -235,16 +282,59 @@ router.post(
     }
 
     const appPort = parseInt(body.app_port || site.app_port, 10);
-    if (site.type === 'node' && (!Number.isInteger(appPort) || appPort < 1 || appPort > 65535)) {
-      errors.push('App port must be between 1 and 65535.');
+    if (!Number.isInteger(appPort) || appPort < 1 || appPort > 65535) {
+      errors.push('Internal port must be between 1 and 65535.');
     }
+
+    // Host port: only re-validate when it actually changed.
+    let hostPort = site.port;
+    if (body.port !== undefined && String(body.port).trim() !== String(site.port)) {
+      const verdict = await sites.checkHostPort(body.port, site.id);
+      if (!verdict.ok) errors.push(verdict.error);
+      else hostPort = verdict.port;
+    }
+
+    // Advanced Docker options.
+    let extraLabels = site.extra_labels;
+    if (body.extra_labels !== undefined) {
+      const raw = String(body.extra_labels).trim() || '{}';
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+          errors.push('Container labels must be a JSON object.');
+        } else {
+          extraLabels = JSON.stringify(parsed);
+        }
+      } catch (_) {
+        errors.push('Container labels are not valid JSON.');
+      }
+    }
+
+    const customImage = String(
+      body.custom_image !== undefined ? body.custom_image : site.custom_image
+    ).trim();
+    if (customImage && !/^[\w.\-\/:@]+$/.test(customImage)) {
+      errors.push('That does not look like a valid Docker image name.');
+    }
+
+    const dockerNetwork = String(
+      body.docker_network !== undefined ? body.docker_network : site.docker_network
+    ).trim();
+    if (dockerNetwork && !/^[\w.\-]+$/.test(dockerNetwork)) {
+      errors.push('That does not look like a valid Docker network name.');
+    }
+
+    const extraVolumes = String(
+      body.extra_volumes !== undefined ? body.extra_volumes : site.extra_volumes
+    );
 
     if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
     db.prepare(
       `UPDATE sites SET domain = ?, extra_domains = ?, runtime_version = ?, install_command = ?,
-         start_command = ?, app_port = ?, env_json = ?, memory_mb = ?, cpu_limit = ?,
-         notes = ?, owner_id = ? WHERE id = ?`
+         start_command = ?, app_port = ?, port = ?, env_json = ?, memory_mb = ?, cpu_limit = ?,
+         notes = ?, owner_id = ?, custom_image = ?, extra_volumes = ?, extra_labels = ?,
+         docker_network = ? WHERE id = ?`
     ).run(
       domain,
       extras.join(','),
@@ -252,11 +342,16 @@ router.post(
       String(body.install_command !== undefined ? body.install_command : site.install_command),
       String(body.start_command !== undefined ? body.start_command : site.start_command),
       appPort,
+      hostPort,
       envJson,
       parseInt(body.memory_mb || '0', 10) || 0,
       parseFloat(body.cpu_limit || '0') || 0,
       String(body.notes !== undefined ? body.notes : site.notes).slice(0, 4000),
       req.user.role === 'admin' && body.owner_id ? parseInt(body.owner_id, 10) : site.owner_id,
+      customImage,
+      extraVolumes,
+      extraLabels,
+      dockerNetwork,
       site.id
     );
 
@@ -281,8 +376,9 @@ router.post(
     }
     const site = sites.getSite(req.site.id);
     const requestSsl = req.body.ssl !== 'false' && req.body.ssl !== false;
+    const adopt = req.body.adopt === true || req.body.adopt === 'true';
     try {
-      const result = await npmplus.syncProxyHost(site, { requestSsl });
+      const result = await npmplus.syncProxyHost(site, { requestSsl, adopt });
       db.prepare('UPDATE sites SET npm_proxy_id = ?, npm_cert_id = ?, ssl = ? WHERE id = ?').run(
         result.proxyId,
         result.certId || null,
@@ -294,6 +390,10 @@ router.post(
     } catch (err) {
       if (err.partial && err.proxyId) {
         db.prepare('UPDATE sites SET npm_proxy_id = ?, ssl = 0 WHERE id = ?').run(err.proxyId, site.id);
+      }
+      // An existing proxy host is a question for the user, not a failure.
+      if (err.existingProxy) {
+        return res.status(409).json({ error: err.message, existingProxy: err.existingProxy });
       }
       return res.status(502).json({ error: err.message, partial: Boolean(err.partial) });
     }
@@ -334,6 +434,48 @@ router.post(
     await sites.deleteSite(site.id, { deleteFiles });
     audit(req, 'site.delete', site.name, { deleteFiles });
     return res.json({ ok: true, redirect: '/' });
+  })
+);
+
+/* ------------------------------------------------------------------ *
+ * Presets
+ * ------------------------------------------------------------------ */
+router.post(
+  '/sites/:id/save-template',
+  loadSite,
+  wrap(async (req, res) => {
+    try {
+      const template = templates.createFromSite(
+        sites.getSite(req.site.id),
+        { name: req.body.name, description: req.body.description },
+        req.user.id
+      );
+      audit(req, 'template.create', template.name, { fromSite: req.site.name });
+      return res.json({ ok: true, template });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  })
+);
+
+router.get(
+  '/api/templates',
+  wrap(async (req, res) => {
+    res.json({ templates: templates.list() });
+  })
+);
+
+router.post(
+  '/api/templates/:id/delete',
+  wrap(async (req, res) => {
+    const template = templates.get(parseInt(req.params.id, 10));
+    if (!template) return res.status(404).json({ error: 'Preset not found' });
+    if (req.user.role !== 'admin' && template.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete presets you created.' });
+    }
+    templates.remove(template.id);
+    audit(req, 'template.delete', template.name);
+    return res.json({ ok: true });
   })
 );
 

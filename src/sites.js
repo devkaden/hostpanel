@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const config = require('./config');
-const { db, audit } = require('./db');
+const { db, audit, getNumericSetting } = require('./db');
 const docker = require('./docker');
 const tpl = require('./site-templates');
 const npmplus = require('./npmplus');
@@ -127,12 +127,83 @@ function allDomains(site) {
 /* ------------------------------------------------------------------ *
  * Port allocation
  * ------------------------------------------------------------------ */
+function portRange() {
+  return {
+    start: getNumericSetting('port_range_start', config.portRangeStart),
+    end: getNumericSetting('port_range_end', config.portRangeEnd),
+  };
+}
+
 function allocatePort() {
   const used = new Set(db.prepare('SELECT port FROM sites').all().map((r) => r.port));
-  for (let p = config.portRangeStart; p <= config.portRangeEnd; p += 1) {
+  const { start, end } = portRange();
+  for (let p = start; p <= end; p += 1) {
     if (!used.has(p)) return p;
   }
-  throw new Error('No free ports left in the configured range');
+  throw new Error(
+    `No free ports left between ${start} and ${end}. Widen the range in Settings, or delete a site.`
+  );
+}
+
+/** Which site, if any, already holds this port. */
+function siteUsingPort(port, excludeSiteId) {
+  return db
+    .prepare('SELECT id, name FROM sites WHERE port = ? AND id IS NOT ?')
+    .get(port, excludeSiteId || null);
+}
+
+/**
+ * Checks a user-supplied host port: valid number, not taken by another site,
+ * and not already bound by something else on this machine.
+ */
+async function checkHostPort(port, excludeSiteId) {
+  const parsed = parseInt(port, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return { ok: false, error: 'Port must be a number between 1 and 65535.' };
+  }
+  if (parsed < 1024) {
+    return {
+      ok: false,
+      error: `Port ${parsed} is reserved for system services. Pick something above 1024.`,
+    };
+  }
+  if (parsed === config.port || parsed === getNumericSetting('panel_port', config.port)) {
+    return { ok: false, error: `Port ${parsed} is the control panel's own port.` };
+  }
+
+  const clash = siteUsingPort(parsed, excludeSiteId);
+  if (clash) {
+    return { ok: false, error: `Port ${parsed} is already used by the site "${clash.name}".` };
+  }
+
+  const free = await portIsFree(parsed, excludeSiteId);
+  if (!free) {
+    return {
+      ok: false,
+      error: `Something else on this machine is already listening on port ${parsed}.`,
+    };
+  }
+  return { ok: true, port: parsed };
+}
+
+/**
+ * True when nothing is listening on the port. A port held by this site's own
+ * container counts as free, since that container is about to be replaced.
+ */
+function portIsFree(port, excludeSiteId) {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const tester = net
+      .createServer()
+      .once('error', async (err) => {
+        if (err.code !== 'EADDRINUSE') return resolve(true);
+        if (!excludeSiteId) return resolve(false);
+        const own = db.prepare('SELECT port FROM sites WHERE id = ?').get(excludeSiteId);
+        return resolve(Boolean(own && own.port === port));
+      })
+      .once('listening', () => tester.close(() => resolve(true)))
+      .listen(port, '0.0.0.0');
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -200,28 +271,33 @@ function createSiteRecord(input, user) {
     throw err;
   }
 
-  const port = allocatePort();
+  // An explicitly chosen port must already have been validated by the caller.
+  const port = input.port ? parseInt(input.port, 10) : allocatePort();
   const isWp = type === 'wordpress';
   const dbPassword = crypto.randomBytes(18).toString('base64url');
 
   const defaults = {
-    static: { runtime: '', start: '', install: '' },
-    php: { runtime: input.runtime_version || '8.3', start: '', install: '' },
-    wordpress: { runtime: input.runtime_version || '8.3', start: '', install: '' },
+    static: { runtime: '', start: '', install: '', appPort: 80 },
+    php: { runtime: input.runtime_version || '8.3', start: '', install: '', appPort: 80 },
+    wordpress: { runtime: input.runtime_version || '8.3', start: '', install: '', appPort: 80 },
     node: {
       runtime: input.runtime_version || '22',
       start: input.start_command || 'npm start',
       install: input.install_command || 'npm install --omit=dev',
+      appPort: 3000,
     },
   }[type];
+
+  const appPort = parseInt(input.app_port, 10) || defaults.appPort;
 
   const info = db
     .prepare(
       `INSERT INTO sites
         (name, domain, extra_domains, type, owner_id, port, runtime_version,
          install_command, start_command, app_port, env_json, memory_mb, cpu_limit,
-         db_name, db_user, db_password, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'creating')`
+         db_name, db_user, db_password, custom_image, extra_volumes, extra_labels,
+         docker_network, status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'creating')`
     )
     .run(
       name,
@@ -233,13 +309,17 @@ function createSiteRecord(input, user) {
       defaults.runtime,
       defaults.install,
       defaults.start,
-      parseInt(input.app_port || '3000', 10),
+      appPort,
       input.env_json || '{}',
       parseInt(input.memory_mb || '0', 10) || 0,
       parseFloat(input.cpu_limit || '0') || 0,
       isWp ? 'wordpress' : null,
       isWp ? 'wp_user' : null,
-      isWp ? dbPassword : null
+      isWp ? dbPassword : null,
+      String(input.custom_image || '').trim(),
+      String(input.extra_volumes || ''),
+      String(input.extra_labels || '{}'),
+      String(input.docker_network || '').trim()
     );
 
   return getSite(info.lastInsertRowid);
@@ -258,13 +338,17 @@ async function writeSeedFiles(site) {
     if (!fs.existsSync(file)) await fsp.writeFile(file, contents);
   };
 
+  const appPort = tpl.appPortFor(site);
+
   if (site.type === 'static') {
-    await seedOnce(path.join(dirs.conf, 'nginx-site.conf'), tpl.DEFAULT_NGINX_CONF);
+    await writeManaged(dirs, 'nginx-site.conf', tpl.nginxConf(appPort));
     await seedOnce(path.join(dirs.app, 'index.html'), tpl.seedIndexHtml(site));
   }
 
   if (site.type === 'php' || site.type === 'wordpress') {
     await seedOnce(path.join(dirs.conf, 'php-custom.ini'), tpl.DEFAULT_PHP_INI);
+    await writeManaged(dirs, 'apache-ports.conf', tpl.apachePortsConf(appPort));
+    await writeManaged(dirs, 'apache-vhost.conf', tpl.apacheVhostConf(appPort));
   }
 
   if (site.type === 'php') {
@@ -283,6 +367,46 @@ async function writeSeedFiles(site) {
   if (owner) await chownRecursive(dirs.app, owner.uid, owner.gid);
   await fsp.chmod(dirs.logs, 0o777).catch(() => {});
   return dirs;
+}
+
+/**
+ * Writes a config file the panel generates, without ever destroying user edits.
+ *
+ * A hash of the last generated content is kept alongside the file. The file is
+ * only rewritten when what is on disk still matches that hash, i.e. nobody has
+ * touched it. Once the user edits it, the panel stops overwriting it and the
+ * file is theirs - so changing the internal port later will not take effect
+ * until they update it themselves, which is the safer failure.
+ */
+async function writeManaged(dirs, filename, contents) {
+  const file = path.join(dirs.conf, filename);
+  const hashFile = path.join(dirs.conf, `.${filename}.hash`);
+  const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+  if (fs.existsSync(file)) {
+    let recorded = null;
+    try {
+      recorded = (await fsp.readFile(hashFile, 'utf8')).trim();
+    } catch (_) {
+      recorded = null;
+    }
+    const current = hashOf(await fsp.readFile(file, 'utf8'));
+
+    // No hash on record means this file predates managed config - it may well
+    // contain edits made before the panel started tracking them. Adopt it as
+    // the user's and never overwrite it.
+    if (!recorded) {
+      await fsp.writeFile(hashFile, current);
+      return false;
+    }
+
+    if (recorded !== current) return false; // user-edited, leave alone
+    if (current === hashOf(contents)) return false; // already up to date
+  }
+
+  await fsp.writeFile(file, contents);
+  await fsp.writeFile(hashFile, hashOf(contents));
+  return true;
 }
 
 function setStatus(siteId, status) {
@@ -304,8 +428,12 @@ async function provisionSite(siteId, { createProxy = true } = {}) {
     log('Creating site directories');
     const dirs = await writeSeedFiles(site);
 
-    log('Ensuring Docker network');
-    await docker.ensureNetwork(tpl.networkName(site));
+    if (tpl.ownsNetwork(site)) {
+      log('Ensuring Docker network');
+      await docker.ensureNetwork(tpl.networkName(site));
+    } else {
+      log(`Using existing Docker network ${tpl.networkName(site)}`);
+    }
 
     const spec = tpl.buildSpec(site, dirs);
 
@@ -372,7 +500,14 @@ async function provisionSite(siteId, { createProxy = true } = {}) {
         );
       } catch (err) {
         log(`NPMplus step failed: ${err.message}`);
-        log('The site is running; you can retry the proxy from the site page.');
+        if (err.existingProxy) {
+          log(
+            'Left it untouched. Use "Create proxy + SSL" on the site page to take it over ' +
+              'deliberately, or point this site at a different domain.'
+          );
+        } else {
+          log('The site is running; you can retry the proxy from the site page.');
+        }
       }
     } else if (createProxy && allDomains(site).length) {
       log('NPMplus is not configured - skipping reverse proxy setup');
@@ -444,7 +579,7 @@ async function rebuildSite(siteId) {
 
     await docker.ensureImage(spec.image, log);
     await docker.removeContainer(spec.name).catch(() => {});
-    await docker.ensureNetwork(tpl.networkName(site));
+    if (tpl.ownsNetwork(site)) await docker.ensureNetwork(tpl.networkName(site));
 
     if (spec.dbCreate && !(await docker.getContainer(spec.dbName))) {
       log('Recreating database container');
@@ -524,7 +659,8 @@ async function deleteSite(siteId, { deleteFiles = true } = {}) {
 
   await docker.removeContainer(tpl.containerName(site)).catch(() => {});
   if (site.db_container_id) await docker.removeContainer(tpl.dbContainerName(site)).catch(() => {});
-  await docker.removeNetwork(tpl.networkName(site)).catch(() => {});
+  // Never delete a network the user pointed us at - it may serve other things.
+  if (tpl.ownsNetwork(site)) await docker.removeNetwork(tpl.networkName(site)).catch(() => {});
 
   if (deleteFiles) {
     const dirs = siteDirs(site);
@@ -589,6 +725,10 @@ module.exports = {
   canAccess,
   allDomains,
   allocatePort,
+  portRange,
+  siteUsingPort,
+  checkHostPort,
+  portIsFree,
   validateNew,
   createSiteRecord,
   provisionSite,
@@ -607,6 +747,7 @@ module.exports = {
   isBusy,
   setStatus,
   writeSeedFiles,
+  writeManaged,
   ownerUid,
   chownRecursive,
 };

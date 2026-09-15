@@ -3,11 +3,11 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; cron</h1>
-      <p class="sub">Jobs run inside this site's container on the panel's schedule. No host crontab is touched.</p>
+      <h1><%= site.name %> &middot; scheduled tasks</h1>
+      <p class="sub">Commands that run inside this site automatically, on a schedule you choose.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-primary" onclick="openJob()">+ New job</button>
+      <button class="btn btn-primary" onclick="openJob()">+ New task</button>
       <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
     </div>
   </div>
@@ -29,7 +29,15 @@
         </thead>
         <tbody>
           <% if (!jobs.length) { %>
-            <tr><td colspan="6" class="muted" style="padding:1.6rem">No cron jobs yet.</td></tr>
+            <tr><td colspan="6" style="padding:2rem">
+              <div class="empty" style="padding:0">
+                <div class="empty-icon">&#9200;</div>
+                <h3>No scheduled tasks yet</h3>
+                <p>A scheduled task runs a command inside this site on a repeating schedule &mdash;
+                  clearing a cache nightly, sending a digest every hour, and so on.</p>
+                <button class="btn btn-primary mt" onclick="openJob()">Add a scheduled task</button>
+              </div>
+            </td></tr>
           <% } %>
           <% jobs.forEach(function (j) { %>
             <tr>

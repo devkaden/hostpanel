@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS templates (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  type        TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  created_by  INTEGER,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   sid        TEXT PRIMARY KEY,
   expires    INTEGER NOT NULL,
@@ -112,11 +122,25 @@ function addColumnIfMissing(table, column, definition) {
 }
 
 addColumnIfMissing('sites', 'extra_domains', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('sites', 'custom_image', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('sites', 'extra_volumes', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('sites', 'extra_labels', "TEXT NOT NULL DEFAULT '{}'");
+addColumnIfMissing('sites', 'docker_network', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('sites', 'memory_mb', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('sites', 'cpu_limit', 'REAL NOT NULL DEFAULT 0');
 addColumnIfMissing('sites', 'notes', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('users', 'site_quota', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('users', 'must_change_pw', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Before the internal port became configurable, app_port defaulted to 3000 for
+ * every site type but was only ever used by Node - the others were always
+ * served on 80. Now that the value is real, correct those stale rows so an
+ * existing site does not suddenly expect nginx or Apache on port 3000.
+ */
+db.prepare(
+  "UPDATE sites SET app_port = 80 WHERE type IN ('static','php','wordpress') AND app_port = 3000"
+).run();
 
 /* ------------------------------------------------------------------ *
  * Settings helpers
@@ -131,7 +155,29 @@ const SETTING_DEFAULTS = {
   host_ip: config.hostIp || '',
   panel_title: 'HostPanel',
   allow_host_shell: '1',
+
+  // Ports. Empty means "use the value from .env / the built-in default",
+  // so an untouched install keeps behaving exactly as before.
+  panel_port: '',
+  port_range_start: '',
+  port_range_end: '',
+
+  // Appearance.
+  theme: 'system', // system | dark | light
+  brand_accent: '#4f8cff',
+  brand_logo: '', // data: URL or an image URL
+  ui_mode: 'simple', // default for new visitors: simple | advanced
+
+  // First-run wizard.
+  setup_complete: '0',
 };
+
+/** Reads a setting that should fall back to a config.js default when blank. */
+function getNumericSetting(key, fallback) {
+  const raw = getSetting(key, '');
+  const parsed = parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function getSetting(key, fallback) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -175,4 +221,12 @@ function audit(req, action, target = '', detail = '') {
   }
 }
 
-module.exports = { db, getSetting, setSetting, allSettings, audit, SETTING_DEFAULTS };
+module.exports = {
+  db,
+  getSetting,
+  setSetting,
+  getNumericSetting,
+  allSettings,
+  audit,
+  SETTING_DEFAULTS,
+};

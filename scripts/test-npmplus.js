@@ -41,6 +41,26 @@ const npmplus = require(path.join(APP, 'npmplus.js'));
 const JWT = 's%3AeyJhbGciOiJSUzI1NiJ9.fake-signed-token.sig';
 const COOKIE_NAME = '__Host-Http-token';
 const REAL_PASSWORD = 'correct-horse';
+
+// Exactly the fields NPMplus 2.15.x permits on a proxy host.
+const ALLOWED_PROXY_FIELDS = new Set([
+  'domain_names', 'forward_scheme', 'forward_host', 'forward_port', 'certificate_id',
+  'ssl_forced', 'hsts_enabled', 'hsts_subdomains', 'trust_forwarded_proto', 'http2_support',
+  'npmplus_http3_support', 'block_exploits', 'caching_enabled', 'allow_websocket_upgrade',
+  'npmplus_noindex', 'npmplus_crowdsec_appsec', 'npmplus_proxy_request_buffering',
+  'npmplus_proxy_response_buffering', 'npmplus_upstream_compression', 'npmplus_fancyindex',
+  'npmplus_x_frame_options', 'npmplus_auth_request', 'npmplus_auth_request_upstream',
+  'npmplus_access_list_ids', 'npmplus_access_list_type', 'advanced_config',
+  'npmplus_location_config', 'meta', 'locations',
+]);
+
+// What NPMplus already has. The default entry is an unrelated domain; a test
+// swaps in a colliding one to simulate a domain that is already proxied.
+const DEFAULT_HOSTS = [{
+  id: 7, domain_names: ['old.example.com'], forward_scheme: 'http',
+  forward_host: '1.2.3.4', forward_port: 80, enabled: 1, certificate_id: 0,
+}];
+let existingHosts = DEFAULT_HOSTS;
 let mode = 'modern';
 const calls = [];
 
@@ -85,9 +105,17 @@ const server = http.createServer((req, res) => {
     if (!authed) return json(403, { error: { code: 403, message: 'Not authorised' } });
 
     if (req.url.startsWith('/api/nginx/proxy-hosts')) {
-      if (req.method === 'GET') return json(200, [{ id: 7, domain_names: ['old.example.com'], forward_scheme: 'http', forward_host: '1.2.3.4', forward_port: 80, enabled: 1, certificate_id: 0 }]);
-      if (req.method === 'POST') return json(201, { id: 42, ...JSON.parse(body) });
-      if (req.method === 'PUT') return json(200, { id: 42, ...JSON.parse(body) });
+      if (req.method === 'GET') return json(200, existingHosts);
+      if (req.method === 'POST' || req.method === 'PUT') {
+        // NPMplus schemas are additionalProperties:false. Reject anything the
+        // real server would reject, so the client payload stays valid.
+        const payload = JSON.parse(body || '{}');
+        const extra = Object.keys(payload).filter((k) => !ALLOWED_PROXY_FIELDS.has(k));
+        if (extra.length) {
+          return json(400, { error: { code: 400, message: 'data must NOT have additional properties' } });
+        }
+        return json(req.method === 'POST' ? 201 : 200, { id: 42, ...payload });
+      }
       if (req.method === 'DELETE') return json(200, true);
     }
     if (req.method === 'POST' && req.url === '/api/nginx/certificates') {
@@ -139,6 +167,33 @@ server.listen(0, '127.0.0.1', async () => {
 
     npmplus.invalidateToken();
     check('deletes a proxy host', (await npmplus.deleteProxyHost(42)) === true);
+
+    console.log('\nstrict NPMplus schema (additionalProperties: false)');
+    npmplus.invalidateToken();
+    const sent = calls.filter((c) => c.method === 'POST' && c.url === '/api/nginx/proxy-hosts');
+    check('proxy payload was accepted by the strict schema', sent.length > 0);
+    check('payload omits the removed access_list_id field',
+      !JSON.stringify(sent).includes('access_list_id'));
+
+    console.log('\na domain NPMplus already proxies');
+    existingHosts = [{
+      id: 4, domain_names: ['kjserver.net'], forward_scheme: 'http',
+      forward_host: '10.0.0.9', forward_port: 8080, enabled: 1, certificate_id: 0,
+    }];
+    const claimed = { ...site, domain: 'kjserver.net', extra_domains: '' };
+    npmplus.invalidateToken();
+    let takeover = null;
+    try { await npmplus.syncProxyHost(claimed); } catch (e) { takeover = e; }
+    check('refuses to repoint it without permission', takeover !== null, 'no error thrown');
+    check('reports the existing host id', takeover && takeover.existingProxy &&
+      takeover.existingProxy.id === 4, takeover && takeover.message);
+    check('reports where it currently points',
+      takeover && /10\.0\.0\.9:8080/.test(takeover.message), takeover && takeover.message);
+
+    npmplus.invalidateToken();
+    const adopted = await npmplus.syncProxyHost(claimed, { adopt: true, requestSsl: false });
+    check('adopts it when explicitly told to', adopted.proxyId === 4, JSON.stringify(adopted));
+    existingHosts = DEFAULT_HOSTS;
 
     console.log('\nlegacy NPM (bearer token) — backward compatibility');
     mode = 'legacy';

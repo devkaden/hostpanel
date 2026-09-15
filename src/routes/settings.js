@@ -4,6 +4,8 @@ const express = require('express');
 
 const config = require('../config');
 const { allSettings, setSetting, getSetting, audit } = require('../db');
+const sites = require('../sites');
+const templates = require('../templates');
 const auth = require('../auth');
 const docker = require('../docker');
 const npmplus = require('../npmplus');
@@ -32,6 +34,9 @@ router.get(
       config,
       hostShellSupported: Boolean(terminal.hostShellAvailable() || process.env.FORCE_SHELL_UI),
       dataDir: config.dataDir,
+      portRange: sites.portRange(),
+      templates: templates.list(),
+      effectivePanelPort: config.port,
     });
   })
 );
@@ -45,6 +50,29 @@ router.post(
     setSetting('panel_title', String(body.panel_title || 'HostPanel').slice(0, 60));
     setSetting('host_ip', String(body.host_ip || '').trim());
     setSetting('allow_host_shell', body.allow_host_shell ? '1' : '0');
+
+    // Appearance.
+    const theme = ['system', 'dark', 'light'].includes(body.theme) ? body.theme : 'system';
+    setSetting('theme', theme);
+    setSetting('ui_mode', body.ui_mode === 'advanced' ? 'advanced' : 'simple');
+    const accent = String(body.brand_accent || '').trim();
+    setSetting('brand_accent', /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#4f8cff');
+    const logo = String(body.brand_logo || '').trim();
+    // Only a same-origin path or an inline image, so this cannot become a
+    // tracking beacon or a way to smuggle script into every page.
+    if (!logo || /^(\/[\w\-./]*|data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+)$/.test(logo)) {
+      setSetting('brand_logo', logo);
+    }
+
+    // Ports. Blank means "fall back to the value in .env".
+    const panelPort = parseInt(body.panel_port, 10);
+    setSetting('panel_port', Number.isInteger(panelPort) && panelPort > 0 ? String(panelPort) : '');
+    const rangeStart = parseInt(body.port_range_start, 10);
+    const rangeEnd = parseInt(body.port_range_end, 10);
+    if (Number.isInteger(rangeStart) && Number.isInteger(rangeEnd) && rangeEnd > rangeStart) {
+      setSetting('port_range_start', String(rangeStart));
+      setSetting('port_range_end', String(rangeEnd));
+    }
 
     setSetting('npmplus_url', String(body.npmplus_url || '').trim().replace(/\/+$/, ''));
     setSetting('npmplus_email', String(body.npmplus_email || '').trim());

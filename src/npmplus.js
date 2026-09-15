@@ -361,12 +361,16 @@ function proxyPayload(site, domains, certificateId) {
       'Host IP is not set. Add the IP that NPMplus should forward traffic to in Settings.'
     );
   }
+  // Only fields both NPM and NPMplus accept. Their schemas are
+  // additionalProperties:false, and NPMplus dropped `access_list_id` in favour
+  // of `npmplus_access_list_ids`, so sending it rejects the whole request with
+  // "data must NOT have additional properties". Access lists are left alone
+  // either way - the panel does not manage them.
   return {
     domain_names: domains,
     forward_scheme: 'http',
     forward_host: forwardHost,
     forward_port: site.port,
-    access_list_id: 0,
     certificate_id: certificateId || 0,
     ssl_forced: Boolean(certificateId),
     http2_support: Boolean(certificateId),
@@ -431,15 +435,31 @@ async function deleteCertificate(id) {
  * Creates or updates the proxy host for a site, optionally requesting a
  * Let's Encrypt certificate. Returns { proxyId, certId, ssl }.
  */
-async function syncProxyHost(site, { requestSsl = true } = {}) {
+async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
   const domains = domainsOf(site);
   if (!domains.length) throw new Error('This site has no domain, so there is nothing to proxy.');
 
   let proxyId = site.npm_proxy_id || null;
 
-  // If we lost track of the id, try to adopt an existing host for the domain.
+  // A proxy host for this domain may already exist that the panel did not
+  // create - very likely on a homelab where the domain was already in use.
+  // Repointing it would silently break whatever it currently serves, so that
+  // needs an explicit decision rather than happening as a side effect.
   if (!proxyId) {
     const existing = await findProxyHostByDomain(domains[0]);
+    if (existing && !adopt) {
+      const err = new Error(
+        `NPMplus already has proxy host #${existing.id} for ${domains[0]}, forwarding to ` +
+          `${existing.forward_scheme}://${existing.forward_host}:${existing.forward_port}. ` +
+          `Taking it over would repoint it at this site (${cfg().hostIp}:${site.port}).`
+      );
+      err.existingProxy = {
+        id: existing.id,
+        domains: existing.domain_names,
+        forward: `${existing.forward_scheme}://${existing.forward_host}:${existing.forward_port}`,
+      };
+      throw err;
+    }
     if (existing) proxyId = existing.id;
   }
 

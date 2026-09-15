@@ -21,9 +21,9 @@
       <button class="btn" data-action="start">Start</button>
       <button class="btn" data-action="stop">Stop</button>
       <button class="btn" data-action="restart">Restart</button>
-      <button class="btn" data-action="rebuild" title="Recreate the container from the current settings, keeping your files">Rebuild</button>
+      <button class="btn" data-action="rebuild" title="Recreate the container from the current settings. Your files are kept.">Apply changes</button>
       <% if (site.type === 'node') { %>
-        <button class="btn" data-action="install" title="Re-run the install command inside the container">Install deps</button>
+        <button class="btn adv" data-action="install" title="Re-run the install command inside the container">Reinstall dependencies</button>
       <% } %>
     </div>
   </div>
@@ -32,7 +32,8 @@
 
   <% if (live.state === 'missing') { %>
     <div class="alert alert-error">
-      The container for this site does not exist. Use <strong>Rebuild</strong> to recreate it from the current settings.
+      <strong>This site has no container yet.</strong> That usually means the build failed or it was removed
+      outside the panel. Press <strong>Apply changes</strong> above to build it again &mdash; your files are untouched.
     </div>
   <% } %>
 
@@ -49,20 +50,31 @@
     <!-- ------------------------------------------------------------ left -->
     <div>
       <div class="card">
-        <h2>Container</h2>
+        <h2>How this site is running</h2>
         <dl class="dl">
-          <dt>Name</dt><dd><code class="inline"><%= containerName %></code></dd>
-          <dt>Image</dt><dd><code class="inline"><%= image %></code></dd>
-          <dt>State</dt><dd><%= live.state %></dd>
-          <% if (dbContainerName) { %>
-            <dt>Database</dt><dd><code class="inline"><%= dbContainerName %></code> &middot; <%= live.dbState %></dd>
-          <% } %>
-          <dt>Published</dt><dd><code class="inline">0.0.0.0:<%= site.port %></code></dd>
-          <dt>CPU</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
-          <dt>Memory</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
-          <dt>Disk (app)</dt><dd><%= disk.human %> in <%= disk.files %> files</dd>
-          <dt>Data dir</dt><dd><code class="inline"><%= dirs.root %></code></dd>
+          <dt>Status</dt><dd><%= live.state %></dd>
+          <dt>Reachable at</dt>
+          <dd>
+            <% if (hostIp) { %>
+              <a href="http://<%= hostIp %>:<%= site.port %>" target="_blank" rel="noopener"><%= hostIp %>:<%= site.port %></a>
+            <% } else { %>
+              port <%= site.port %>
+            <% } %>
+            <span class="help" data-help="The port this site is published on. Your reverse proxy forwards your domain here."></span>
+          </dd>
+          <dt>Type</dt><dd><%= siteTypes[site.type] ? siteTypes[site.type].label : site.type %><%= site.runtime_version ? ' ' + site.runtime_version : '' %></dd>
+          <dt>Memory in use</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
+          <dt>CPU in use</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
+          <dt>Files</dt><dd><%= disk.human %> across <%= disk.files %> file<%= disk.files === 1 ? '' : 's' %></dd>
           <dt>Created</dt><dd><%= site.created_at %> UTC</dd>
+
+          <dt class="adv">Container name</dt><dd class="adv"><code class="inline"><%= containerName %></code></dd>
+          <dt class="adv">Image</dt><dd class="adv"><code class="inline"><%= image %></code></dd>
+          <dt class="adv">Internal port</dt><dd class="adv"><%= site.app_port %></dd>
+          <% if (dbContainerName) { %>
+            <dt class="adv">Database container</dt><dd class="adv"><code class="inline"><%= dbContainerName %></code> &middot; <%= live.dbState %></dd>
+          <% } %>
+          <dt class="adv">Folder on disk</dt><dd class="adv"><code class="inline"><%= dirs.root %></code></dd>
         </dl>
       </div>
 
@@ -135,11 +147,14 @@
         <h2>Settings</h2>
         <form id="settings-form">
           <div class="field">
-            <label for="s-domain">Primary domain</label>
+            <label for="s-domain">
+              Web address
+              <span class="help" data-help="The domain visitors type. Its DNS must point at your reverse proxy."></span>
+            </label>
             <input id="s-domain" name="domain" type="text" value="<%= site.domain || '' %>" placeholder="app.example.com">
           </div>
-          <div class="field">
-            <label for="s-extra">Additional domains</label>
+          <div class="field adv">
+            <label for="s-extra">Other addresses for the same site</label>
             <input id="s-extra" name="extra_domains" type="text" value="<%= site.extra_domains || '' %>" placeholder="www.example.com, example.com">
           </div>
 
@@ -164,7 +179,7 @@
                 <% }) %>
               </select>
             </div>
-            <div class="field-row">
+            <div class="field-row adv">
               <div class="field">
                 <label for="s-install">Install command</label>
                 <input id="s-install" name="install_command" type="text" value="<%= site.install_command %>">
@@ -174,13 +189,26 @@
                 <input id="s-start" name="start_command" type="text" value="<%= site.start_command %>">
               </div>
             </div>
-            <div class="field">
-              <label for="s-appport">App listen port</label>
-              <input id="s-appport" name="app_port" type="number" min="1" max="65535" value="<%= site.app_port %>">
-            </div>
           <% } %>
 
-          <div class="field-row">
+          <div class="field adv">
+            <label for="s-port">
+              Port on this server
+              <span class="help" data-help="Change this only if the port clashes with something else. Rebuild afterwards, and update your reverse proxy to match."></span>
+            </label>
+            <input id="s-port" name="port" type="number" min="1024" max="65535" value="<%= site.port %>">
+            <div id="port-feedback"></div>
+          </div>
+
+          <div class="field adv">
+            <label for="s-appport-any">
+              Internal port
+              <span class="help" data-help="The port the server inside the container listens on. Leave it unless your app needs something specific."></span>
+            </label>
+            <input id="s-appport-any" name="app_port" type="number" min="1" max="65535" value="<%= site.app_port %>">
+          </div>
+
+          <div class="field-row adv">
             <div class="field">
               <label for="s-mem">Memory limit (MB)</label>
               <input id="s-mem" name="memory_mb" type="number" min="0" step="64" value="<%= site.memory_mb %>">
@@ -191,14 +219,17 @@
             </div>
           </div>
 
-          <div class="field">
-            <label for="s-env">Environment variables (JSON)</label>
+          <div class="field adv">
+            <label for="s-env">
+              Environment variables
+              <span class="help" data-help="Settings passed to your app, written as JSON."></span>
+            </label>
             <textarea id="s-env" name="env_json" spellcheck="false"><%= site.env_json %></textarea>
           </div>
 
           <% if (owners && owners.length) { %>
-            <div class="field">
-              <label for="s-owner">Owner</label>
+            <div class="field adv">
+              <label for="s-owner">Belongs to</label>
               <select id="s-owner" name="owner_id">
                 <% owners.forEach(function (o) { %>
                   <option value="<%= o.id %>" <%= site.owner_id === o.id ? 'selected' : '' %>><%= o.username %></option>
@@ -212,9 +243,42 @@
             <textarea id="s-notes" name="notes" style="min-height:64px" spellcheck="true"><%= site.notes %></textarea>
           </div>
 
+          <div class="field adv">
+            <label for="s-network">
+              Docker network
+              <span class="help" data-help="Blank means this site gets its own private network."></span>
+            </label>
+            <input id="s-network" name="docker_network" type="text" value="<%= site.docker_network || '' %>" placeholder="its own private network">
+          </div>
+
+          <div class="field adv">
+            <label for="s-image">
+              Custom Docker image
+              <span class="help" data-help="Replaces the default image for this site type. Rebuild to apply."></span>
+            </label>
+            <input id="s-image" name="custom_image" type="text" value="<%= site.custom_image || '' %>" placeholder="default for this type">
+          </div>
+
+          <div class="field adv">
+            <label for="s-volumes">
+              Extra folders to mount
+              <span class="help" data-help="One per line, as folder:/path/in/container. Must stay inside this site's own directory."></span>
+            </label>
+            <textarea id="s-volumes" name="extra_volumes" spellcheck="false" style="min-height:64px"><%= site.extra_volumes || '' %></textarea>
+          </div>
+
+          <div class="field adv">
+            <label for="s-labels">
+              Container labels
+              <span class="help" data-help="Docker labels as JSON, for tools like Watchtower or Traefik."></span>
+            </label>
+            <textarea id="s-labels" name="extra_labels" spellcheck="false" style="min-height:52px"><%= site.extra_labels || '{}' %></textarea>
+          </div>
+
           <div class="btn-row">
             <button class="btn btn-primary" type="submit">Save settings</button>
-            <button class="btn" type="button" data-action="rebuild">Rebuild container</button>
+            <button class="btn" type="button" data-action="rebuild">Apply changes and restart</button>
+            <button class="btn adv" type="button" onclick="HP.openModal('template-modal')">Save as preset</button>
           </div>
         </form>
       </div>
@@ -251,6 +315,22 @@
     <div class="modal-foot">
       <button class="btn" data-close-modal="delete-modal">Cancel</button>
       <button class="btn btn-danger" id="delete-confirm-btn">Delete permanently</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="template-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Save as preset</h3><button class="btn btn-sm btn-ghost" data-close-modal="template-modal">&times;</button></div>
+    <div class="modal-body">
+      <p class="muted small">Remembers this site's runtime, commands, limits, environment variables and container
+        options so you can start the next site from them. The name, domain, port and database are not included.</p>
+      <div class="field"><label for="tpl-name">Preset name</label><input id="tpl-name" type="text" placeholder="Node app with Postgres env"></div>
+      <div class="field"><label for="tpl-desc">Short description (optional)</label><input id="tpl-desc" type="text"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="template-modal">Cancel</button>
+      <button class="btn btn-primary" id="tpl-save">Save preset</button>
     </div>
   </div>
 </div>
@@ -305,12 +385,40 @@
       el.disabled = true;
       var original = el.textContent;
       el.textContent = 'Talking to NPMplus...';
-      try {
-        var res = await HP.api('/sites/' + SITE_ID + (id === 'proxy-delete' ? '/proxy/delete' : '/proxy'), { body: body });
+      var url = '/sites/' + SITE_ID + (id === 'proxy-delete' ? '/proxy/delete' : '/proxy');
+
+      var send = async function (payload) {
+        var res = await HP.api(url, { body: payload });
         HP.toast(label + ' ok', 'ok');
         setTimeout(function () { location.reload(); }, 800);
+      };
+
+      try {
+        await send(body);
       } catch (err) {
-        HP.toast(err.message, 'error');
+        var existing = err.data && err.data.existingProxy;
+        if (existing) {
+          // Never repoint someone else's proxy host without asking.
+          var ok = confirm(
+            'NPMplus already has proxy host #' + existing.id + ' for ' +
+            existing.domains.join(', ') + '.\n\n' +
+            'It currently forwards to ' + existing.forward + '.\n\n' +
+            'Take it over and repoint it at this site? Whatever it serves now will stop working.'
+          );
+          if (ok) {
+            try {
+              var adoptBody = {};
+              for (var k in body) adoptBody[k] = body[k];
+              adoptBody.adopt = true;
+              await send(adoptBody);
+              return;
+            } catch (err2) {
+              HP.toast(err2.message, 'error');
+            }
+          }
+        } else {
+          HP.toast(err.message, 'error');
+        }
         el.disabled = false;
         el.textContent = original;
       }
@@ -338,14 +446,70 @@
     }
   });
 
+  /* ---------------------------------------------------------- preset */
+  var tplSave = document.getElementById('tpl-save');
+  if (tplSave) {
+    tplSave.addEventListener('click', async function () {
+      try {
+        var res = await HP.api('/sites/' + SITE_ID + '/save-template', {
+          body: {
+            name: document.getElementById('tpl-name').value,
+            description: document.getElementById('tpl-desc').value
+          }
+        });
+        HP.toast('Saved preset "' + res.template.name + '"', 'ok');
+        HP.closeModal('template-modal');
+      } catch (err) { HP.toast(err.message, 'error'); }
+    });
+  }
+
+  /* ----------------------------------------------------- port checks */
+  var portField = document.getElementById('s-port');
+  var portFeedback = document.getElementById('port-feedback');
+  if (portField) {
+    var portTimer = null;
+    portField.addEventListener('input', function () {
+      clearTimeout(portTimer);
+      portFeedback.innerHTML = '';
+      if (!portField.value.trim()) return;
+      portTimer = setTimeout(async function () {
+        try {
+          var res = await fetch('/api/ports/check?site=' + SITE_ID + '&port=' + encodeURIComponent(portField.value),
+            { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+          portFeedback.innerHTML = res.ok
+            ? '<div class="field-ok">Port ' + res.port + ' is free. Apply changes to move the site onto it.</div>'
+            : '<div class="field-bad">' + HP.escapeHtml(res.error) + '</div>';
+        } catch (_) { /* transient */ }
+      }, 400);
+    });
+  }
+
   /* --------------------------------------------------------- progress */
   var progressSource = null;
+  var reloadScheduled = false;
+
   function showProgress() {
     document.getElementById('progress-card').style.display = '';
     var out = document.getElementById('progress-console');
     out.textContent = '';
+
+    // Drop ?provisioning=1 immediately. Without this, the reload below lands
+    // back on a URL that reopens the stream, which finishes instantly because
+    // nothing is running, which reloads again - a permanent reload loop.
+    if (location.search.indexOf('provisioning=1') !== -1) {
+      history.replaceState({}, '', location.pathname);
+    }
+
     if (progressSource) progressSource.close();
     progressSource = new EventSource('/sites/' + SITE_ID + '/progress');
+
+    // The server says up front whether work is actually in flight. Only a run
+    // we watched from busy to finished is worth reloading for.
+    var wasBusy = false;
+    progressSource.addEventListener('state', function (ev) {
+      try { wasBusy = !!JSON.parse(ev.data).busy; } catch (_) { /* ignore */ }
+    });
+
     progressSource.onmessage = function (ev) {
       try {
         var line = JSON.parse(ev.data);
@@ -353,11 +517,16 @@
         out.scrollTop = out.scrollHeight;
       } catch (_) { /* ignore */ }
     };
+
     progressSource.addEventListener('done', function () {
       progressSource.close();
       progressSource = null;
-      setTimeout(function () { location.reload(); }, 1200);
+      if (wasBusy && !reloadScheduled) {
+        reloadScheduled = true;
+        setTimeout(function () { location.reload(); }, 1200);
+      }
     });
+
     progressSource.onerror = function () { /* SSE retries automatically */ };
   }
   <% if (provisioning) { %>showProgress();<% } %>
