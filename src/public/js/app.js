@@ -351,6 +351,32 @@
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   }
 
+  /* ------------------------------------------- CSP violation reporting -- */
+  /**
+   * Reports anything the Content-Security-Policy blocks.
+   *
+   * A CSP refusal is close to invisible: the browser blocks the resource and
+   * says nothing useful, so it surfaces as a blank iframe, an upload that never
+   * sends, or an image that will not load - and none of those point at the
+   * header responsible. This has already cost two long debugging sessions, so
+   * the panel now says so itself, naming the directive and the URL.
+   */
+  function reportCspViolations() {
+    document.addEventListener('securitypolicyviolation', function (e) {
+      var detail = e.violatedDirective + ' blocked ' + (e.blockedURI || '(inline)');
+      try { console.error('[csp]', detail, e); } catch (_) { /* no console */ }
+
+      var host = document.getElementById('csp-note');
+      if (host) {
+        host.style.display = '';
+        host.textContent =
+          'The browser blocked this: ' + detail + '. That is the panel\'s ' +
+          'Content-Security-Policy, not your site. Set DISABLE_CSP=true in ' +
+          '/opt/hostpanel/app/.env and restart to confirm.';
+      }
+    });
+  }
+
   /* ----------------------------------------------------- dropdowns ----- */
   /**
    * Any .menu with a .menu-trigger. Closes on outside click and on Escape,
@@ -451,6 +477,7 @@
 
     initMenus();
     initSiteActions();
+    reportCspViolations();
 
     // Help bubbles are reachable by keyboard, not just hover.
     document.querySelectorAll('.help').forEach(function (h) {

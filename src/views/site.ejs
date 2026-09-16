@@ -104,6 +104,9 @@
         <% } %>
       </div>
 
+      <div class="alert alert-warn" id="csp-note" style="display:none"></div>
+      <div class="alert alert-warn" id="preview-note-live" style="display:none"></div>
+
       <div class="preview-frame size-desktop" id="preview-frame">
         <iframe
           id="preview-iframe"
@@ -423,6 +426,7 @@
 
 <script>
   var SITE_ID = <%= site.id %>;
+  var REACHABLE = <%- jsonScript(live.reachable !== false) %>;
 
   /* ---------------------------------------------------------- actions */
   // The tab bar's buttons are handled in app.js, so every site tab has them.
@@ -576,6 +580,29 @@
         if (btn) btn.click();
       }
     } catch (e) { /* ignore */ }
+
+    /**
+     * Says something when the preview stays blank.
+     *
+     * A white rectangle is the least informative failure in the panel: the
+     * site could be down, unreachable, or blocked from being framed, and they
+     * look identical. The server already knows whether anything answers on the
+     * port, so the two cases can at least be told apart in words.
+     */
+    var loaded = false;
+    iframe.addEventListener('load', function () { loaded = true; });
+
+    setTimeout(function () {
+      if (loaded) return;
+      var note = document.getElementById('preview-note-live');
+      note.style.display = '';
+      note.innerHTML = REACHABLE
+        ? 'The site is answering on port <code><%= site.port %></code>, but the browser ' +
+          'did not render it here. Try <strong>New tab</strong> - if it loads there, ' +
+          'something is stopping this page from embedding it.'
+        : 'Nothing is answering on port <code><%= site.port %></code> yet, so there is ' +
+          'nothing to show. Check the <a href="/sites/<%= site.id %>/logs">Logs</a> tab.';
+    }, 5000);
 
     document.getElementById('preview-reload').addEventListener('click', function () {
       // Re-assigning src re-requests the page; a cache-buster avoids a stale render.

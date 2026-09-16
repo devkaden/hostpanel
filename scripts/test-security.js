@@ -379,6 +379,18 @@ console.log('\ncache headers do not break downloads');
     /ASSET_VERSION/.test(src));
 }
 
+console.log('\nCSP failures are visible');
+{
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');
+  // A CSP refusal blocks the resource and says nothing useful, so it looks
+  // like a blank iframe or an upload that never sends. The panel has to name
+  // the directive itself, or the header is effectively undebuggable.
+  check('the panel listens for CSP violations',
+    /securitypolicyviolation/.test(app));
+  check('and names the directive that blocked it',
+    /violatedDirective/.test(app) && /blockedURI/.test(app));
+}
+
 console.log('\nno inline event handlers carrying data');
 {
   // onclick="fn({json})" puts untrusted values into an HTML attribute, where
