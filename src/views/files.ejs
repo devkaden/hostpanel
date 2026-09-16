@@ -606,9 +606,12 @@
   function readEntry(entry, prefix) {
     return new Promise(function (resolve) {
       if (entry.isFile) {
-        entry.file(function (file) {
-          resolve([{ file: file, path: (prefix ? prefix + '/' : '') + entry.name }]);
-        }, function () { resolve([]); });
+        // Deliberately NOT calling entry.file() here. A File captured during
+        // traversal is a snapshot, and Chrome releases access to a dropped
+        // folder soon afterwards - the browser then aborts the upload
+        // mid-body. Keeping the entry and resolving the File immediately
+        // before sending avoids that entirely.
+        resolve([{ entry: entry, path: (prefix ? prefix + '/' : '') + entry.name }]);
       } else if (entry.isDirectory) {
         var reader = entry.createReader();
         var all = [];
@@ -633,24 +636,27 @@
     });
   }
 
-  async function collectFromDrop(dataTransfer) {
-    var out = [];
-    var entries = [];
-    if (dataTransfer.items && dataTransfer.items.length) {
-      for (var i = 0; i < dataTransfer.items.length; i += 1) {
-        var item = dataTransfer.items[i];
-        var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
-        if (entry) entries.push(entry);
+  /**
+   * Produces the actual File for an item, as late as possible.
+   * Items from a file input already carry one; items from a drop carry a
+   * directory entry that has to be asked each time.
+   */
+  function resolveFile(item) {
+    if (item.file) return Promise.resolve(item.file);
+    return new Promise(function (resolve, reject) {
+      if (!item.entry || !item.entry.file) {
+        reject(new Error('No file handle for ' + item.path));
+        return;
       }
-    }
-    if (entries.length) {
-      var groups = await Promise.all(entries.map(function (e) { return readEntry(e, ''); }));
-      groups.forEach(function (g) { out = out.concat(g); });
-      return out;
-    }
-    // Older browsers: flat file list only.
-    return Array.prototype.map.call(dataTransfer.files || [], function (f) {
-      return { file: f, path: f.name };
+      item.entry.file(
+        function (file) { resolve(file); },
+        function () {
+          reject(new Error(
+            'The browser released access to "' + item.path + '". ' +
+            'Use the Upload folder button instead of dragging.'
+          ));
+        }
+      );
     });
   }
 
@@ -683,11 +689,11 @@
    * Uploads one file as a raw PUT. No multipart, so there is no form that can
    * end unexpectedly - a failure names the file it belongs to.
    */
-  function putFile(entry, onProgress) {
+  function putFile(item, file, onFraction) {
     return new Promise(function (resolve, reject) {
       var url = '/api/sites/' + SITE_ID + '/files/raw' +
         '?dir=' + encodeURIComponent(current) +
-        '&path=' + encodeURIComponent(entry.path);
+        '&path=' + encodeURIComponent(item.path);
 
       var xhr = new XMLHttpRequest();
       xhr.open('PUT', url);
@@ -699,7 +705,6 @@
       // the whole queue behind it. Better to fail this file and move on.
       xhr.timeout = 120000;
 
-      var last = 0;
       var settled = false;
       function done(fn, arg) {
         if (settled) return;
@@ -708,44 +713,50 @@
       }
 
       xhr.upload.addEventListener('progress', function (e) {
-        if (!e.lengthComputable) return;
-        onProgress(e.loaded - last);
-        last = e.loaded;
+        if (e.lengthComputable && e.total) onFraction(e.loaded / e.total);
       });
 
       xhr.addEventListener('load', function () {
         var res = {};
         try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
-        // Account for anything not reported before completion.
-        onProgress(Math.max(0, (entry.file.size || 0) - last));
+        onFraction(1);
         if (xhr.status >= 200 && xhr.status < 300) done(resolve, res);
-        else done(reject, new Error(res.error || (entry.path + ' failed (' + xhr.status + ')')));
+        else done(reject, new Error(res.error || (item.path + ' failed (' + xhr.status + ')')));
       });
       xhr.addEventListener('error', function () {
-        done(reject, new Error('The connection dropped while uploading ' + entry.path));
+        done(reject, new Error('The connection dropped while uploading ' + item.path));
       });
       xhr.addEventListener('timeout', function () {
-        done(reject, new Error(entry.path + ' timed out - the upload stalled'));
+        done(reject, new Error(item.path + ' timed out - the upload stalled'));
       });
       xhr.addEventListener('abort', function () {
         done(reject, new Error('Upload cancelled'));
       });
 
       try {
-        xhr.send(entry.file);
+        xhr.send(file);
       } catch (err) {
-        done(reject, new Error('Could not read ' + entry.path + ' from disk'));
+        done(reject, new Error('Could not read ' + item.path + ' from disk'));
       }
     });
   }
 
-  /** One retry, because a stall is usually transient. */
-  async function putWithRetry(entry, onProgress) {
+  /**
+   * Resolves the File as late as possible, then uploads it. One retry, since a
+   * stalled connection is usually transient - and the File is resolved again
+   * on the retry rather than reusing a handle that may have just gone stale.
+   */
+  async function uploadOne(item, onFraction) {
+    var attempt = async function () {
+      var file = await resolveFile(item);
+      return putFile(item, file, onFraction);
+    };
     try {
-      return await putFile(entry, onProgress);
+      return await attempt();
     } catch (err) {
-      if (/cancelled/i.test(err.message)) throw err;
-      return putFile(entry, function () { /* progress already counted */ });
+      if (/cancelled|released access/i.test(err.message)) throw err;
+      onFraction(0);
+      return attempt();
     }
   }
 
@@ -776,8 +787,9 @@
 
     if (!entries.length) { HP.toast('Nothing left to upload', 'error'); return; }
 
-    var totalBytes = entries.reduce(function (n, e) { return n + (e.file.size || 0); }, 0);
-    var doneBytes = 0;
+    // Progress is counted in files rather than bytes: sizes are unknown until
+    // each File is resolved, which now happens just before it is sent.
+    var total = entries.length;
     var doneCount = 0;
     var failures = [];
 
@@ -787,38 +799,40 @@
     bar.classList.add('on');
     fill.style.width = '0%';
 
-    var inFlight = [];
-
-    function tick(delta) {
-      doneBytes += delta;
-      var pct = totalBytes ? Math.min(100, Math.round((doneBytes / totalBytes) * 100)) : 100;
-      fill.style.width = pct + '%';
-      var names = inFlight.filter(Boolean);
-      label.textContent = 'Uploading ' + entries.length + ' file' +
-        (entries.length === 1 ? '' : 's') + ' - ' + pct + '% (' + doneCount + ' done)' +
-        (names.length ? ' - ' + names[0] : '');
-    }
-    tick(0);
-
     // Browsers allow about six connections per host. Staying well under that
     // leaves room for the rest of the panel and avoids queueing behind uploads.
     var CONCURRENCY = 2;
+    var fractions = [];
+    var inFlight = [];
+
+    function tick() {
+      var partial = fractions.reduce(function (n, f) { return n + (f || 0); }, 0);
+      var pct = Math.min(100, Math.round(((doneCount + partial) / total) * 100));
+      fill.style.width = pct + '%';
+      var names = inFlight.filter(Boolean);
+      label.textContent = 'Uploading ' + total + ' file' + (total === 1 ? '' : 's') +
+        ' - ' + pct + '% (' + doneCount + ' done)' + (names.length ? ' - ' + names[0] : '');
+    }
+    tick();
+
     var queue = entries.slice();
 
     async function worker(_unused, slot) {
       while (queue.length) {
-        var entry = queue.shift();
-        inFlight[slot] = entry.path;
-        tick(0);
+        var item = queue.shift();
+        inFlight[slot] = item.path;
+        fractions[slot] = 0;
+        tick();
         try {
-          await putWithRetry(entry, tick);
+          await uploadOne(item, function (f) { fractions[slot] = f; tick(); });
           doneCount += 1;
         } catch (err) {
-          failures.push({ name: entry.path, error: err.message });
-          doneBytes += entry.file.size || 0;
+          failures.push({ name: item.path, error: err.message });
+          doneCount += 1; // counted either way, so the bar still completes
         }
+        fractions[slot] = 0;
         inFlight[slot] = null;
-        tick(0);
+        tick();
       }
     }
 
@@ -830,14 +844,13 @@
       bar.classList.remove('on');
     }
 
-    if (doneCount) {
-      HP.toast('Uploaded ' + doneCount + ' file' + (doneCount === 1 ? '' : 's'), 'ok');
-    }
+    var ok = total - failures.length;
+    if (ok) HP.toast('Uploaded ' + ok + ' file' + (ok === 1 ? '' : 's'), 'ok');
     if (failures.length) {
       await HP.alert({
         title: failures.length === 1 ? 'One file could not be uploaded' :
           failures.length + ' files could not be uploaded',
-        message: doneCount ? 'The rest went through.' : 'Nothing was uploaded.',
+        message: ok ? 'The rest went through.' : 'Nothing was uploaded.',
         list: failures.slice(0, 10).map(function (f) { return f.name + ' - ' + f.error; }),
         tone: 'danger'
       });

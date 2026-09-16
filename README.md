@@ -181,6 +181,12 @@ ever learns that the form "ended unexpectedly" — with no indication of which
 file or which limit. A raw body has no form to end, so a failure names the file
 and the reason.
 
+Files dropped as a folder are resolved from their directory entry immediately
+before each one is sent, never captured up front. Chrome releases access to a
+dropped folder shortly after the drop, so a `File` captured during traversal
+goes stale and the browser aborts the upload mid-body — which the server sees
+only as a connection that ended early.
+
 Both ends have a timeout, because a request that never settles is worse than
 one that fails: the socket stays tied up, and browsers allow only about six
 connections per host, so later uploads queue behind it and the whole thing

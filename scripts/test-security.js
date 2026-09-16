@@ -205,6 +205,32 @@ console.log('\nupload transport');
   check('the client sends the CSRF token on uploads', /X-CSRF-Token/.test(view));
 }
 
+console.log('\ndropped-folder file handles');
+{
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'files.ejs'), 'utf8');
+
+  // Chrome releases access to a dropped folder shortly after the drop, so a
+  // File captured during traversal goes stale and the browser aborts the
+  // upload mid-body. The File must be resolved immediately before sending.
+  const traversal = view
+    .slice(view.indexOf('function readEntry'), view.indexOf('function resolveFile'))
+    // Comments explain why this must not happen; only real code counts.
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  check('traversal does not capture File objects',
+    !/entry\.file\s*\(/.test(traversal),
+    'readEntry still calls entry.file() during traversal');
+  check('traversal keeps the entry instead',
+    /entry:\s*entry/.test(traversal));
+  check('a late resolver exists', /function resolveFile/.test(view));
+  check('the resolver is what calls entry.file()',
+    /item\.entry\.file\(/.test(view));
+  check('upload resolves the file before sending',
+    /await resolveFile\(item\)/.test(view));
+  check('a stale handle is explained to the user',
+    /released access/.test(view));
+}
+
 console.log('\nin-app dialogs replace the browser ones');
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');
