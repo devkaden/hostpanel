@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-403-3fbf7f" alt="403 tests">
+  <img src="https://img.shields.io/badge/tests-464-3fbf7f" alt="464 tests">
 </p>
 
 ---
@@ -116,6 +116,28 @@ NPMplus runs on the same machine it is the LAN IP, not `127.0.0.1`.
 Tick **Manage reverse proxy hosts automatically** and creating a site with a
 domain will, in one go: build the container, create the proxy host, request a
 certificate, and re-attach it with SSL forced and websockets allowed.
+
+### Keeping proxy hosts in step
+
+Proxy hosts drift: a site's port changes, a domain is added here but never
+there, somebody disables a host while debugging. The symptom always arrives
+later, as "the domain stopped working".
+
+- **Check & Fix** on a site's page compares that site against its proxy host,
+  says in words what does not match, and corrects it.
+- **Settings → Reverse Proxy → Check & Fix All** does the same for every site
+  in one pass.
+- Changing a site's port or domains fixes its proxy host automatically, so the
+  drift mostly stops happening.
+
+Anything hand-written in a host's advanced config is kept: the panel only ever
+rewrites its own marked block. A proxy host the panel did not create is never
+repointed without being told to take it over.
+
+**Let other pages embed this site in a frame** (per site) clears the
+`X-Frame-Options` header NPMplus adds. The panel's own preview does not need
+it — previews are served back through the panel — so this is only for embedding
+a site somewhere else.
 
 <details>
 <summary>NPMplus authentication differs from classic NPM</summary>

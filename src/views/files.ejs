@@ -6,7 +6,10 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; Files</h1>
+      <div class="page-title-row">
+        <h1><%= site.name %> &middot; Files</h1>
+        <%- include('partials/site-status') %>
+      </div>
       <p class="sub">Drag files or folders anywhere on this page to upload them. Drag rows onto a folder to move them.</p>
     </div>
     <div class="page-actions">

@@ -128,8 +128,8 @@ a:hover { text-decoration: underline; }
    opposite of the current theme - the icon says what pressing it does. */
 #theme-toggle .theme-sun { display: none; }
 #theme-toggle .theme-moon { display: inline-flex; }
-:root[data-theme="dark"] #theme-toggle .theme-sun,
-:root[data-theme="dark"] #theme-toggle .theme-moon,
+:root[data-theme="dark"] #theme-toggle .theme-sun { display: inline-flex; }
+:root[data-theme="dark"] #theme-toggle .theme-moon { display: none; }
 
 /* --------------------------------------------------------------- menu -- */
 .menu { position: relative; }
@@ -274,6 +274,10 @@ tbody tr:last-child td { border-bottom: none; }
   display: inline-flex; align-items: center; gap: .3rem;
   padding: .13rem .5rem; border-radius: 99px;
   font-size: .73rem; font-weight: 600; letter-spacing: .01em;
+  /* States come from Docker in lower case ("running", "exited"). Capitalising
+     here rather than at every call site keeps one rule instead of a dozen, and
+     leaves words that are already upper case ("SSL", "OK") alone. */
+  text-transform: capitalize;
   background: var(--muted-2); color: var(--muted);
   white-space: nowrap;
 }
@@ -1108,15 +1112,16 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .settings-save .muted { margin-right: auto; align-self: center; }
 
 /* ------------------------------------------------ site state in tab bar -- */
-.site-state {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  margin-right: auto;
-  padding-right: .6rem;
-}
+/*
+ * The live state reads beside the site name, not in the tab bar. Sharing a
+ * row with Start/Stop/Restart made a reading look like one more button, and
+ * pushed the uptime to the far side of the screen from the name it belongs to.
+ */
+.page-title-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .2rem; }
+.page-title-row h1 { margin: 0; }
+.site-state { display: flex; align-items: center; gap: .5rem; }
 .site-state .muted { white-space: nowrap; }
-.tabbar-actions { flex: 1; }
+.tabbar-actions { margin-left: auto; }
 @media (max-width: 720px) {
   .site-state .muted { display: none; }
 }

@@ -30,11 +30,6 @@
        partial usable on the tabs that do not compute `live` server-side. */
   %>
   <div class="tabbar-actions" data-site-actions="<%= site.id %>">
-    <span class="site-state" data-site-state>
-      <span class="pill" data-state-pill><span class="dot"></span><span data-state-text>checking</span></span>
-      <span class="muted small" data-state-detail></span>
-    </span>
-
     <button class="btn btn-sm btn-primary" data-action="start" data-when="stopped"
             title="Start this site">
       <%- icon('play') %><span>Start</span>

@@ -29,7 +29,7 @@
             <thead>
               <tr>
                 <th>User</th>
-                <th style="width:150px">Role &amp; status</th>
+                <th style="width:150px">Role &amp; Status</th>
                 <th style="width:110px">Sites</th>
                 <th style="width:170px" class="right">Actions</th>
               </tr>
@@ -46,8 +46,8 @@
                           <%= u.email ? u.email : 'no email' %>
                           <span class="dot-sep">&middot;</span>
                           <% if (u.last_login) { %>
-                            last seen <span class="rel" data-time="<%= u.last_login %>"><%= u.last_login %></span>
-                          <% } else { %>never signed in<% } %>
+                            Last seen <span class="rel" data-time="<%= u.last_login %>"><%= u.last_login %></span>
+                          <% } else { %>Never signed in<% } %>
                         </div>
                       </div>
                     </div>

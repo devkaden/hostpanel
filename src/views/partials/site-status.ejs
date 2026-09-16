@@ -1,0 +1,11 @@
+<%
+  /* The live state of one site, for the page header.
+     It sits beside the site name rather than in the tab bar: the tab bar is
+     navigation plus the buttons that change the state, and a status reading
+     mixed in among them read as one more control. Filled in by
+     initSiteActions() in app.js from the same poll that drives the buttons. */
+%>
+<span class="site-state" data-site-status="<%= site.id %>">
+  <span class="pill" data-state-pill><span class="dot"></span><span data-state-text>checking</span></span>
+  <span class="muted small" data-state-detail></span>
+</span>

@@ -4,10 +4,13 @@
 
   <div class="page-head">
     <div>
-      <h1>
-        <span class="type-badge"><%= siteTypes[site.type] ? siteTypes[site.type].icon : '?' %></span>
-        <%= site.name %>
-      </h1>
+      <div class="page-title-row">
+        <h1>
+          <span class="type-badge"><%= siteTypes[site.type] ? siteTypes[site.type].icon : '?' %></span>
+          <%= site.name %>
+        </h1>
+        <%- include('partials/site-status') %>
+      </div>
       <p class="sub">
         <%= siteTypes[site.type] ? siteTypes[site.type].label : site.type %>
         &middot; Host Port <%= site.port %>
@@ -19,7 +22,7 @@
     <div class="page-actions">
       <% if (previewUrl) { %>
         <a class="btn" href="<%= previewUrl %>" target="_blank" rel="noopener">
-          <%- icon('external') %><span>Open site</span>
+          <%- icon('external') %><span>Open Site</span>
         </a>
       <% } %>
     </div>
@@ -56,7 +59,7 @@
   <% if (live.state === 'missing' && !provisioning && !busy) { %>
     <div class="alert alert-error" id="missing-alert">
       <strong>This site has no container yet.</strong> That usually means the build failed or it was removed
-      outside the panel. Press <strong>Apply changes</strong> above to build it again &mdash; your files are untouched.
+      outside the panel. Press <strong>Rebuild</strong> above to build it again &mdash; your files are untouched.
     </div>
   <% } %>
 
@@ -139,13 +142,13 @@
       <div class="card">
         <h2>How This Site Is Running</h2>
         <dl class="dl">
-          <dt>Status</dt><dd><%= live.state %></dd>
-          <dt>Reachable at</dt>
+          <dt>Status</dt><dd><%= live.state.charAt(0).toUpperCase() + live.state.slice(1) %></dd>
+          <dt>Reachable At</dt>
           <dd>
             <% if (hostIp) { %>
               <a href="http://<%= hostIp %>:<%= site.port %>" target="_blank" rel="noopener"><%= hostIp %>:<%= site.port %></a>
             <% } else { %>
-              port <%= site.port %>
+              Port <%= site.port %>
             <% } %>
             <span class="help" data-help="The port this site is published on. Your reverse proxy forwards your domain here."></span>
           </dd>
@@ -166,8 +169,8 @@
               <span class="muted small">&middot; restarted <%= live.restartCount %> times</span>
             <% } %>
           </dd>
-          <dt>Memory in use</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
-          <dt>CPU in use</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
+          <dt>Memory in Use</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
+          <dt>CPU in Use</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
           <dt>Files</dt><dd><%= disk.human %> across <%= disk.files %> file<%= disk.files === 1 ? '' : 's' %></dd>
           <dt>Created</dt><dd><%= site.created_at %> UTC</dd>
 
@@ -215,26 +218,57 @@
           <p class="muted small">Add a domain below, then create the proxy host.</p>
         <% } else { %>
           <dl class="dl">
-            <dt>Proxy host</dt>
+            <dt>Proxy Host</dt>
             <dd><%= site.npm_proxy_id ? '#' + site.npm_proxy_id : 'not created' %></dd>
             <dt>Certificate</dt>
             <dd><%= site.npm_cert_id ? '#' + site.npm_cert_id : (site.ssl ? 'attached' : 'none') %></dd>
             <% if (proxyHost) { %>
-              <dt>Forwards to</dt>
+              <dt>Forwards To</dt>
               <dd><code class="inline"><%= proxyHost.forward_scheme %>://<%= proxyHost.forward_host %>:<%= proxyHost.forward_port %></code></dd>
               <dt>Domains</dt>
               <dd><%= (proxyHost.domain_names || []).join(', ') %></dd>
             <% } %>
           </dl>
           <% if (proxyError) { %><div class="alert alert-warn mt small"><%= proxyError %></div><% } %>
+
+          <% if (proxyIssues && proxyIssues.length) { %>
+            <div class="alert alert-warn mt small" id="proxy-issues">
+              <strong>This proxy host does not match the site.</strong>
+              <ul>
+                <% proxyIssues.forEach(function (i) { %><li><%= i %></li><% }) %>
+              </ul>
+              Press <strong>Check &amp; Fix</strong> to put it right.
+            </div>
+          <% } else if (site.npm_proxy_id && proxyHost) { %>
+            <p class="muted small mt" id="proxy-ok">
+              <%- icon('check', 'ico-sm') %> The proxy host matches this site.
+            </p>
+          <% } %>
+
           <div class="btn-row mt">
-            <button class="btn btn-primary btn-sm" id="proxy-sync">
-              <%= site.npm_proxy_id ? 'Re-sync proxy + SSL' : 'Create proxy + SSL' %>
+            <button class="btn btn-primary btn-sm" id="proxy-repair"
+                    title="Compare this site against its proxy host and correct anything that has drifted">
+              <%- icon('shield') %><span>Check &amp; Fix</span>
             </button>
-            <button class="btn btn-sm" id="proxy-sync-nossl">Sync Without SSL</button>
+            <button class="btn btn-sm" id="proxy-sync">
+              <%= site.npm_proxy_id ? 'Re-sync With SSL' : 'Create Proxy + SSL' %>
+            </button>
+            <button class="btn btn-sm adv" id="proxy-sync-nossl">Sync Without SSL</button>
             <% if (site.npm_proxy_id) { %>
-              <button class="btn btn-danger btn-sm" id="proxy-delete">Remove Proxy Host</button>
+              <button class="btn btn-danger btn-sm adv" id="proxy-delete">Remove Proxy Host</button>
             <% } %>
+          </div>
+
+          <div class="check mt">
+            <input type="checkbox" id="allow_framing" <%= site.allow_framing ? 'checked' : '' %>>
+            <div>
+              <label for="allow_framing">Let Other Pages Embed This Site In A Frame</label>
+              <div class="hint">Clears the <code class="inline">X-Frame-Options</code> header the
+                reverse proxy adds, which browsers use to stop a site being framed. The site preview
+                in this panel does not need it - that is served back through the panel - so turn this
+                on only if you embed the site in a dashboard or another page. Press Check &amp; Fix
+                afterwards.</div>
+            </div>
           </div>
           <p class="hint muted small mt">
             Point the DNS for <%= domains.join(', ') %> at NPMplus before requesting a certificate,
@@ -599,6 +633,67 @@
   bindProxy('proxy-sync', { ssl: true }, 'Proxy host synced');
   bindProxy('proxy-sync-nossl', { ssl: false }, 'Proxy host synced');
   bindProxy('proxy-delete', {}, 'Proxy host removed');
+
+  /* ------------------------------------------------- check and fix proxy */
+  (function () {
+    var framing = document.getElementById('allow_framing');
+    var btn = document.getElementById('proxy-repair');
+    if (!btn) return;
+
+    async function repair(adopt) {
+      // The framing choice is saved first, so pressing one button does the
+      // whole thing: the repair then sees the setting it is meant to apply.
+      if (framing) {
+        await HP.api('/sites/' + SITE_ID + '/settings', {
+          body: { allow_framing: framing.checked ? '1' : '0' }
+        });
+      }
+      return HP.api('/sites/' + SITE_ID + '/proxy/repair', { body: { adopt: adopt } });
+    }
+
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.setAttribute('data-busy', '1');
+      try {
+        var res = await repair(false);
+        await report(res);
+      } catch (err) {
+        var existing = err.data && err.data.existingProxy;
+        if (existing) {
+          var ok = await HP.confirm({
+            title: 'That domain is already proxied',
+            message: 'NPMplus proxy host #' + existing.id + ' currently forwards ' +
+              existing.domains.join(', ') + ' to ' + existing.forward + '.\n\n' +
+              'Taking it over repoints it at this site. Whatever it serves now will stop working.',
+            confirmText: 'Take it over',
+            danger: true
+          });
+          if (ok) {
+            try { await report(await repair(true)); return; }
+            catch (err2) { HP.toast(err2.message, 'error'); }
+          }
+        } else {
+          HP.toast(err.message, 'error');
+        }
+        btn.disabled = false;
+        btn.removeAttribute('data-busy');
+      }
+    });
+
+    async function report(res) {
+      if (!res.fixed || !res.fixed.length) {
+        HP.toast('Nothing needed fixing', 'ok');
+        btn.disabled = false;
+        btn.removeAttribute('data-busy');
+        return;
+      }
+      await HP.alert({
+        title: 'Proxy host repaired',
+        message: res.fixed.join('\n')
+      });
+      location.reload();
+    }
+  })();
 
   /* ----------------------------------------------------------- delete */
   document.getElementById('delete-confirm-btn').addEventListener('click', async function () {

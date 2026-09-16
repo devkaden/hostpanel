@@ -3,7 +3,10 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; Scheduled Tasks</h1>
+      <div class="page-title-row">
+        <h1><%= site.name %> &middot; Scheduled Tasks</h1>
+        <%- include('partials/site-status') %>
+      </div>
       <p class="sub">Commands that run inside this site automatically, on a schedule you choose.</p>
     </div>
     <div class="page-actions">
@@ -48,7 +51,7 @@
                 <% if (j.last_exit === null || j.last_exit === undefined) { %>
                   <span class="pill">-</span>
                 <% } else if (j.last_exit === 0) { %>
-                  <span class="pill pill-running">ok</span>
+                  <span class="pill pill-running">OK</span>
                 <% } else { %>
                   <span class="pill pill-error">exit <%= j.last_exit %></span>
                 <% } %>

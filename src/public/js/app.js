@@ -452,9 +452,12 @@
    * from one that is crash-looping and happened to be alive when asked.
    */
   function applySiteState(bar, info) {
-    var pill = bar.querySelector('[data-state-pill]');
-    var text = bar.querySelector('[data-state-text]');
-    var detail = bar.querySelector('[data-state-detail]');
+    // The reading lives in the page header now, not among the buttons, so it
+    // is looked up on its own rather than inside the action bar.
+    var status = document.querySelector('[data-site-status]') || bar;
+    var pill = status.querySelector('[data-state-pill]');
+    var text = status.querySelector('[data-state-text]');
+    var detail = status.querySelector('[data-state-detail]');
     if (!pill || !text) return;
 
     var state = info.state || 'unknown';

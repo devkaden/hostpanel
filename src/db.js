@@ -174,6 +174,16 @@ addColumnIfMissing('users', 'pref_theme', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('users', 'pref_ui_mode', "TEXT NOT NULL DEFAULT ''");
 
 /*
+ * Whether this site may be shown inside a frame on another page.
+ *
+ * Off by default, because the reverse proxy's X-Frame-Options is a
+ * clickjacking defence and clearing it is a decision about a public site, not
+ * a detail of panel plumbing. The panel's own preview never needs it - that is
+ * served back through the panel.
+ */
+addColumnIfMissing('sites', 'allow_framing', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
  * Before the internal port became configurable, app_port defaulted to 3000 for
  * every site type but was only ever used by Node - the others were always
  * served on 80. Now that the value is real, correct those stale rows so an

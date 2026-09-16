@@ -118,6 +118,103 @@ console.log('\nthe site cards');
     'display:flex beats the hidden attribute unless this rule exists');
 }
 
+/* ------------------------------------------------- state in the header -- */
+console.log('\nwhere the live state is shown');
+{
+  const tabs = read('src/views/partials/site-tabs.ejs');
+  const status = read('src/views/partials/site-status.ejs');
+  const css = read('src/public/css/app.css');
+
+  check('the tab bar no longer carries the status reading',
+    !/data-state-pill/.test(tabs),
+    'a reading sitting among Start/Stop/Restart reads as one more button');
+  check('the status partial has the pill and the uptime', /data-state-pill/.test(status) && /data-state-detail/.test(status));
+  for (const view of ['site', 'files', 'logs', 'cron']) {
+    check(`${view} shows it beside the site name`,
+      new RegExp('page-title-row[\\s\\S]{0,300}site-status').test(read(`src/views/${view}.ejs`)));
+  }
+  check('the host shell, which has no site, does not',
+    /!isHostShell[\s\S]{0,80}site-status/.test(read('src/views/terminal.ejs')));
+  check('.page-title-row is styled', css.includes('.page-title-row'));
+
+  const js = read('src/public/js/app.js');
+  check('the poll writes to the header element, not inside the button bar',
+    /document\.querySelector\('\[data-site-status\]'\)/.test(js));
+}
+
+/* ------------------------------------------------------- capitalisation - */
+console.log('\ncapitalisation');
+{
+  const css = read('src/public/css/app.css');
+  check('state pills are capitalised in one place',
+    /\.pill \{[\s\S]{0,400}text-transform: capitalize/.test(css),
+    'Docker reports "running"; the panel shows "Running"');
+
+  // Headings, buttons and field labels start with a capital.
+  const bad = [];
+  for (const file of everyView()) {
+    const src = fs.readFileSync(file, 'utf8');
+    const patterns = [
+      /<h[123]\b[^>]*>\s*([a-z][a-zA-Z ]{2,40})</g,
+      /<label\b[^>]*>\s*([a-z][a-zA-Z ]{2,40})</g,
+      /<th\b[^>]*>\s*([a-z][a-zA-Z ]{2,40})</g,
+      /<dt>\s*([a-z][a-zA-Z ]{2,40})</g,
+    ];
+    for (const re of patterns) {
+      for (const m of src.matchAll(re)) bad.push(`${path.basename(file)}: "${m[1].trim()}"`);
+    }
+  }
+  check('no heading, label, column or field name starts lower case',
+    bad.length === 0, bad.join('\n        '));
+}
+
+/* ------------------------------------------------ proxy check and fix --- */
+console.log('\nchecking and fixing proxy hosts');
+{
+  const site = read('src/views/site.ejs');
+  const settings = read('src/views/settings.ejs');
+  const routes = read('src/routes/sites.js');
+  const settingsRoutes = read('src/routes/settings.js');
+
+  check('the site page has a Check & Fix button', /id="proxy-repair"/.test(site));
+  check('it reports what changed rather than just reloading',
+    /Proxy host repaired/.test(site));
+  check('the framing choice is a per-site checkbox', /id="allow_framing"/.test(site));
+  check('and it says the preview does not need it',
+    /does not need it - that is served back through the panel/.test(site));
+  check('problems found are listed on the page', /proxyIssues/.test(site));
+
+  check('there is a repair route', /'\/sites\/:id\/proxy\/repair'/.test(routes));
+  check('and a read-only check route', /'\/api\/sites\/:id\/proxy\/check'/.test(routes));
+  check('both are behind the site access check',
+    (routes.match(/proxy\/(repair|check)'[\s\S]{0,60}loadSite/g) || []).length === 2);
+
+  check('settings can check every site at once', /'\/api\/npmplus\/check-all'/.test(settingsRoutes));
+  check('and that is administrators only',
+    /'\/api\/npmplus\/check-all',\s*\n\s*auth\.requireAdmin/.test(settingsRoutes));
+  check('one site failing does not stop the rest',
+    /catch \(err\)[\s\S]{0,300}results\.push/.test(settingsRoutes));
+  check('the settings page has both buttons',
+    /id="proxy-check-all"/.test(settings) && /id="proxy-fix-all"/.test(settings));
+  check('fixing them all asks first', /HP\.confirm\([\s\S]{0,200}Fix every proxy host/.test(settings));
+
+  // The framing checkbox posts one field to the settings endpoint. Every field
+  // that form owns has to read "absent" as unchanged, or saving one thing
+  // erases the rest - and a cleared domain is not obvious until the site stops
+  // answering.
+  check('a partial settings save cannot clear the domain',
+    /body\.domain !== undefined \? body\.domain : site\.domain/.test(routes),
+    'body.domain || "" would delete it');
+  check('nor the extra domains',
+    /body\.extra_domains !== undefined \? body\.extra_domains : site\.extra_domains/.test(routes));
+
+  check('changing the port or domain fixes the proxy without being asked',
+    /const moved =[\s\S]{0,400}npmplus\.repairProxy/.test(routes));
+  check('but only a proxy host the panel already owns',
+    /moved && site\.npm_proxy_id && npmplus\.isEnabled\(\)/.test(routes),
+    'adopting someone else\'s host is a decision, not a side effect');
+}
+
 /* ----------------------------------------------------- security page ---- */
 console.log('\nthe security page');
 {

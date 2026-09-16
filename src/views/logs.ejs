@@ -3,7 +3,10 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; Logs</h1>
+      <div class="page-title-row">
+        <h1><%= site.name %> &middot; Logs</h1>
+        <%- include('partials/site-status') %>
+      </div>
       <p class="sub">Container output and the site's own access/error logs.</p>
     </div>
   </div>

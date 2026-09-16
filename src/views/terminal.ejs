@@ -4,7 +4,10 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= isHostShell ? 'Host shell' : site.name + ' · shell' %></h1>
+      <div class="page-title-row">
+        <h1><%= isHostShell ? 'Host Shell' : site.name + ' · Shell' %></h1>
+        <% if (!isHostShell) { %><%- include('partials/site-status') %><% } %>
+      </div>
       <p class="sub">
         <% if (isHostShell) { %>
           A real login shell on the panel host. Everything you type here runs as the panel's user.

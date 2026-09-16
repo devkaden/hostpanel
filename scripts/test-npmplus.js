@@ -49,6 +49,7 @@ const ALLOWED_CERT_META = new Set([
   'dns_provider_credentials', 'dns_provider', 'letsencrypt_certificate', 'propagation_seconds',
 ]);
 const certPayloads = [];
+const proxyWrites = [];
 
 // Exactly the fields NPMplus 2.15.x permits on a proxy host.
 const ALLOWED_PROXY_FIELDS = new Set([
@@ -113,7 +114,23 @@ const server = http.createServer((req, res) => {
     if (!authed) return json(403, { error: { code: 403, message: 'Not authorised' } });
 
     if (req.url.startsWith('/api/nginx/proxy-hosts')) {
-      if (req.method === 'GET') return json(200, existingHosts);
+      const one = req.url.match(/^\/api\/nginx\/proxy-hosts\/(\d+)(\/enable|\/disable)?$/);
+
+      // Turning a host back on is its own endpoint, not a field on the update.
+      if (one && one[2] === '/enable' && req.method === 'POST') {
+        const host = existingHosts.find((h) => h.id === Number(one[1]));
+        if (!host) return json(404, { error: { code: 404, message: 'not found' } });
+        host.enabled = 1;
+        return json(200, true);
+      }
+
+      if (req.method === 'GET') {
+        if (one) {
+          const host = existingHosts.find((h) => h.id === Number(one[1]));
+          return host ? json(200, host) : json(404, { error: { code: 404, message: 'not found' } });
+        }
+        return json(200, existingHosts);
+      }
       if (req.method === 'POST' || req.method === 'PUT') {
         // NPMplus schemas are additionalProperties:false. Reject anything the
         // real server would reject, so the client payload stays valid.
@@ -122,7 +139,13 @@ const server = http.createServer((req, res) => {
         if (extra.length) {
           return json(400, { error: { code: 400, message: 'data must NOT have additional properties' } });
         }
-        return json(req.method === 'POST' ? 201 : 200, { id: 42, ...payload });
+        proxyWrites.push({ method: req.method, id: one ? Number(one[1]) : null, payload });
+        // An update is remembered, so a later read shows what the client set.
+        if (one) {
+          const host = existingHosts.find((h) => h.id === Number(one[1]));
+          if (host) Object.assign(host, payload);
+        }
+        return json(req.method === 'POST' ? 201 : 200, { id: one ? Number(one[1]) : 42, ...payload });
       }
       if (req.method === 'DELETE') return json(200, true);
     }
@@ -231,6 +254,122 @@ server.listen(0, '127.0.0.1', async () => {
     npmplus.invalidateToken();
     const adopted = await npmplus.syncProxyHost(claimed, { adopt: true, requestSsl: false });
     check('adopts it when explicitly told to', adopted.proxyId === 4, JSON.stringify(adopted));
+    existingHosts = DEFAULT_HOSTS;
+
+    /* ------------------------------------------- checking and repairing -- */
+    console.log('\nchecking a proxy host against the site');
+    mode = 'modern';
+    settings.npmplus_password = REAL_PASSWORD;
+    npmplus.invalidateToken();
+    {
+      // A host that has drifted in every way that matters: wrong port, wrong
+      // forwarding address, a missing domain, websockets off, turned off.
+      existingHosts = [{
+        id: 11, domain_names: ['app.example.com'], forward_scheme: 'http',
+        forward_host: '10.9.9.9', forward_port: 9999, enabled: 0, certificate_id: 0,
+        allow_websocket_upgrade: false, advanced_config: '',
+      }];
+      const drifted = { ...site, npm_proxy_id: 11, npm_cert_id: null };
+      const found = npmplus.diagnoseProxy(drifted, existingHosts[0]).map((i) => i.code);
+
+      check('spots the wrong forwarding port', found.includes('forward_port'), found.join(', '));
+      check('spots the wrong forwarding address', found.includes('forward_host'), found.join(', '));
+      check('spots the missing domain', found.includes('domains'), found.join(', '));
+      check('spots websockets being off', found.includes('websocket'), found.join(', '));
+      check('spots the host being disabled', found.includes('disabled'), found.join(', '));
+      const said = npmplus.diagnoseProxy(drifted, existingHosts[0]);
+      check('says so in plain words',
+        said.some((i) => /forwards to port 9999, but this site listens on 21000/.test(i.says)),
+        JSON.stringify(said));
+
+      const report = await npmplus.checkProxy(drifted);
+      check('checkProxy finds the host and reports it is not ok', report.reachable && !report.ok);
+      check('and changes nothing', existingHosts[0].forward_port === 9999);
+
+      proxyWrites.length = 0;
+      const repair = await npmplus.repairProxy(drifted);
+      const written = proxyWrites.filter((w) => w.method === 'PUT').pop();
+      check('repair updates the existing host rather than making a new one',
+        written && written.id === 11, JSON.stringify(proxyWrites));
+      check('it corrects the port', written.payload.forward_port === 21000);
+      check('it corrects the forwarding address', written.payload.forward_host === '192.168.1.50');
+      check('it restores both domains',
+        written.payload.domain_names.join(',') === 'app.example.com,www.example.com',
+        written.payload.domain_names.join(','));
+      check('it turns websockets on', written.payload.allow_websocket_upgrade === true);
+      check('it turns the host back on', existingHosts[0].enabled === 1);
+      check('it says what it changed', repair.fixed.length >= 4, JSON.stringify(repair.fixed));
+      check('and the site keeps the same proxy id', repair.proxyId === 11);
+
+      const after = await npmplus.checkProxy({ ...drifted, allow_framing: 0 });
+      check('a second check comes back clean', after.ok, JSON.stringify(after.issues));
+      check('and a repair then changes nothing',
+        (await npmplus.repairProxy({ ...drifted, allow_framing: 0 })).fixed.length === 0);
+    }
+
+    console.log('\nframing, and the config the user wrote themselves');
+    {
+      existingHosts = [{
+        id: 12, domain_names: ['app.example.com', 'www.example.com'], forward_scheme: 'http',
+        forward_host: '192.168.1.50', forward_port: 21000, enabled: 1, certificate_id: 0,
+        allow_websocket_upgrade: true,
+        advanced_config: 'client_max_body_size 512m;',
+      }];
+      const framed = { ...site, npm_proxy_id: 12, allow_framing: 1 };
+
+      proxyWrites.length = 0;
+      const repair = await npmplus.repairProxy(framed);
+      const sentConfig = proxyWrites.filter((w) => w.method === 'PUT').pop().payload.advanced_config;
+
+      check('the framing header is cleared', /more_clear_headers "X-Frame-Options";/.test(sentConfig),
+        sentConfig);
+      check("the user's own directive survives", /client_max_body_size 512m;/.test(sentConfig),
+        'a sync must never silently drop hand-written config');
+      check('the panel marks its own block', sentConfig.includes('# >>> hostpanel'));
+      check('it says what it did', repair.fixed.some((f) => /X-Frame-Options/.test(f)),
+        JSON.stringify(repair.fixed));
+
+      // And turning it back off removes only the panel's block.
+      proxyWrites.length = 0;
+      await npmplus.repairProxy({ ...framed, allow_framing: 0 });
+      const off = proxyWrites.filter((w) => w.method === 'PUT').pop().payload.advanced_config;
+      check('turning framing off removes the directive', !/more_clear_headers/.test(off), off);
+      check('and still keeps the user config', /client_max_body_size 512m;/.test(off), off);
+      check('with no leftover markers', !off.includes('hostpanel'), off);
+
+      check('the block can be stripped from config that never had one',
+        npmplus.withoutManagedBlock('server_tokens off;') === 'server_tokens off;');
+      check('and from an empty config', npmplus.withoutManagedBlock('') === '');
+      check('and from null', npmplus.withoutManagedBlock(null) === '');
+    }
+
+    console.log('\nrepairing a host the panel did not create');
+    {
+      existingHosts = [{
+        id: 13, domain_names: ['app.example.com'], forward_scheme: 'http',
+        forward_host: '172.16.0.4', forward_port: 3000, enabled: 1, certificate_id: 0,
+        allow_websocket_upgrade: true, advanced_config: '',
+      }];
+      const unlinked = { ...site, npm_proxy_id: null, extra_domains: '' };
+      let refused = null;
+      try { await npmplus.repairProxy(unlinked); } catch (e) { refused = e; }
+      check('it refuses to take over silently', refused && refused.existingProxy,
+        refused && refused.message);
+      check('the host is untouched', existingHosts[0].forward_port === 3000);
+
+      const taken = await npmplus.repairProxy(unlinked, { adopt: true });
+      check('and adopts it when told to', taken.proxyId === 13, JSON.stringify(taken));
+    }
+
+    console.log('\na site with nothing to check');
+    {
+      const noDomain = { ...site, domain: '', extra_domains: '' };
+      const issues = npmplus.diagnoseProxy(noDomain, null).map((i) => i.code);
+      check('a site with no domain is not reported as broken', issues.join(',') === 'no_domain',
+        issues.join(','));
+      const missing = npmplus.diagnoseProxy(site, null).map((i) => i.code);
+      check('a site whose host has vanished is', missing.includes('missing'), missing.join(','));
+    }
     existingHosts = DEFAULT_HOSTS;
 
     console.log('\nlegacy NPM (bearer token) — backward compatibility');

@@ -244,11 +244,11 @@
         </div>
         <% if (docker.ok) { %>
           <dl class="dl">
-            <dt>Server version</dt><dd><%= dockerInfo.version %></dd>
+            <dt>Server Version</dt><dd><%= dockerInfo.version %></dd>
             <dt>Containers</dt><dd><%= dockerInfo.running %> running / <%= dockerInfo.containers %> total</dd>
             <dt>Images</dt><dd><%= dockerInfo.images %></dd>
             <dt>Host CPUs</dt><dd><%= dockerInfo.cpus %></dd>
-            <dt>Host memory</dt><dd><%= dockerMem %></dd>
+            <dt>Host Memory</dt><dd><%= dockerMem %></dd>
           </dl>
         <% } else { %>
           <div class="alert alert-error mb0">
@@ -261,11 +261,11 @@
       <div class="card" data-settings-section="system">
         <h2>Paths and Ports</h2>
         <dl class="dl">
-          <dt>Data directory</dt><dd><code class="inline"><%= dataDir %></code></dd>
-          <dt>Site directories</dt><dd><code class="inline"><%= config.sitesDir %>/&lt;name&gt;</code></dd>
-          <dt>Panel port</dt><dd><%= config.port %></dd>
-          <dt>Site port range</dt><dd><%= config.portRangeStart %> - <%= config.portRangeEnd %></dd>
-          <dt>Max upload</dt><dd><%= Math.round(config.maxUploadBytes / 1048576) %> MB</dd>
+          <dt>Data Directory</dt><dd><code class="inline"><%= dataDir %></code></dd>
+          <dt>Site Directories</dt><dd><code class="inline"><%= config.sitesDir %>/&lt;name&gt;</code></dd>
+          <dt>Panel Port</dt><dd><%= config.port %></dd>
+          <dt>Site Port Range</dt><dd><%= config.portRangeStart %> - <%= config.portRangeEnd %></dd>
+          <dt>Max Upload</dt><dd><%= Math.round(config.maxUploadBytes / 1048576) %> MB</dd>
         </dl>
       </div>
 
@@ -308,10 +308,31 @@
 
       <div class="card" data-settings-section="proxy">
         <div class="card-head">
+          <h2>Check Every Site's Proxy Host</h2>
+          <div class="btn-row" style="margin:0">
+            <button class="btn btn-sm" type="button" id="proxy-check-all">
+              <%- icon('search') %><span>Check All</span>
+            </button>
+            <button class="btn btn-sm btn-primary" type="button" id="proxy-fix-all">
+              <%- icon('shield') %><span>Check &amp; Fix All</span>
+            </button>
+          </div>
+        </div>
+        <p class="muted small">
+          Compares every site against its proxy host in NPMplus and reports what does not match -
+          a forwarding port that moved, a domain added here but never there, a host that was turned
+          off. <strong>Check &amp; Fix All</strong> then corrects them. Certificates are left alone;
+          request those from the site's own page.
+        </p>
+        <div id="proxy-check-result" class="mt"></div>
+      </div>
+
+      <div class="card" data-settings-section="proxy">
+        <div class="card-head">
           <h2>NPMplus Proxy Hosts</h2>
           <button class="btn btn-sm" id="load-hosts">Load</button>
         </div>
-        <div id="hosts-list" class="muted small">Click load to list the proxy hosts NPMplus currently knows about.</div>
+        <div id="hosts-list" class="muted small">Click Load to list the proxy hosts NPMplus currently knows about.</div>
       </div>
   </div>
 </div>
@@ -440,6 +461,76 @@
     btn.disabled = false;
   });
 
+  /* --------------------------------------------- check every proxy host */
+  (function () {
+    var box = document.getElementById('proxy-check-result');
+    if (!box) return;
+
+    async function run(fix, btn) {
+      var others = document.querySelectorAll('#proxy-check-all, #proxy-fix-all');
+      others.forEach(function (b) { b.disabled = true; });
+      btn.setAttribute('data-busy', '1');
+      box.innerHTML = '<span class="muted small">Asking NPMplus about every site...</span>';
+      try {
+        var res = await HP.api('/api/npmplus/check-all', { body: { fix: fix } });
+        render(res);
+      } catch (err) {
+        box.innerHTML = '<div class="alert alert-error mb0">' + HP.escapeHtml(err.message) + '</div>';
+      }
+      others.forEach(function (b) { b.disabled = false; });
+      btn.removeAttribute('data-busy');
+    }
+
+    function render(res) {
+      if (!res.results.length) {
+        box.innerHTML = '<div class="alert alert-info mb0">No site has a domain yet, ' +
+          'so there is nothing to proxy.</div>';
+        return;
+      }
+      var rows = res.results.map(function (r) {
+        var lines = (r.fixed.length ? r.fixed : r.issues).map(function (t) {
+          return '<li>' + HP.escapeHtml(t) + '</li>';
+        }).join('');
+        var pill = r.error
+          ? '<span class="pill pill-error">Failed</span>'
+          : r.fixed.length
+            ? '<span class="pill pill-running">Fixed</span>'
+            : r.issues.length
+              ? '<span class="pill pill-starting">Needs fixing</span>'
+              : '<span class="pill pill-running">OK</span>';
+        return '<tr><td><a href="/sites/' + r.id + '">' + HP.escapeHtml(r.name) + '</a></td>' +
+          '<td>' + pill + '</td><td class="small">' +
+          (r.error ? '<span class="muted">' + HP.escapeHtml(r.error) + '</span>'
+                   : (lines ? '<ul style="margin:0;padding-left:1.1rem">' + lines + '</ul>'
+                            : '<span class="muted">Matches this site.</span>')) +
+          '</td></tr>';
+      }).join('');
+
+      var summary = res.fixed
+        ? res.problems + ' of ' + res.checked + ' site' + (res.checked === 1 ? '' : 's') + ' needed work.'
+        : res.problems + ' of ' + res.checked + ' site' + (res.checked === 1 ? '' : 's') + ' does not match.';
+
+      box.innerHTML = '<p class="small" style="margin:0 0 .6rem">' + HP.escapeHtml(summary) + '</p>' +
+        '<div class="table-wrap"><table><thead><tr><th>Site</th><th style="width:130px">Result</th>' +
+        '<th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    document.getElementById('proxy-check-all').addEventListener('click', function () {
+      run(false, this);
+    });
+    document.getElementById('proxy-fix-all').addEventListener('click', async function () {
+      var btn = this;
+      var ok = await HP.confirm({
+        title: 'Fix every proxy host?',
+        message: 'Each site\'s proxy host will be corrected to match the site: domains, ' +
+          'forwarding address and port, WebSocket upgrades. Proxy hosts the panel did not ' +
+          'create are left alone.',
+        confirmText: 'Check and fix'
+      });
+      if (ok) run(true, btn);
+    });
+  })();
+
   document.getElementById('load-hosts').addEventListener('click', async function () {
     var box = document.getElementById('hosts-list');
     box.textContent = 'Loading...';
@@ -447,7 +538,7 @@
       var data = await fetch('/api/npmplus/proxy-hosts', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       if (data.error) throw new Error(data.error);
       if (!data.hosts.length) { box.textContent = 'NPMplus has no proxy hosts.'; return; }
-      box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Domains</th><th>Forwards to</th><th>SSL</th></tr></thead><tbody>' +
+      box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Domains</th><th>Forwards To</th><th>SSL</th></tr></thead><tbody>' +
         data.hosts.map(function (h) {
           return '<tr><td>' + HP.escapeHtml(h.domains.join(', ')) + '</td><td class="mono small">' + HP.escapeHtml(h.forward) + '</td><td>' +
             (h.ssl ? '<span class="pill pill-ssl">yes</span>' : '<span class="pill">no</span>') + '</td></tr>';

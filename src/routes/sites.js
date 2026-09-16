@@ -122,9 +122,13 @@ router.get(
 
     let proxyHost = null;
     let proxyError = null;
+    let proxyIssues = [];
     if (site.npm_proxy_id && npmplus.isEnabled()) {
       try {
         proxyHost = await npmplus.getProxyHost(site.npm_proxy_id);
+        // Diagnosed here rather than on a button press, so the page says what
+        // is wrong before anyone has to wonder why the domain is not working.
+        proxyIssues = npmplus.diagnoseProxy(site, proxyHost).map((i) => i.says);
       } catch (err) {
         proxyError = err.message;
       }
@@ -149,6 +153,7 @@ router.get(
       inspectInfo,
       proxyHost,
       proxyError,
+      proxyIssues,
       npmplusOn: npmplus.isEnabled(),
       npmplusConfigured: npmplus.isConfigured(),
       provisioning: req.query.provisioning === '1',
@@ -316,10 +321,22 @@ router.post(
     const body = req.body;
     const errors = [];
 
-    const domain = String(body.domain || '').trim().toLowerCase();
+    /*
+     * Absent means "unchanged", not "empty".
+     *
+     * This form is also posted a field at a time - the framing checkbox beside
+     * Check & Fix does exactly that - and reading a missing field as an empty
+     * string would quietly delete the site's domain as a side effect of
+     * saving something else.
+     */
+    const domain = String(body.domain !== undefined ? body.domain : site.domain || '')
+      .trim()
+      .toLowerCase();
     if (domain && !sites.DOMAIN_RE.test(domain)) errors.push('Domain is not a valid hostname.');
 
-    const extras = String(body.extra_domains || '')
+    const extras = String(
+      body.extra_domains !== undefined ? body.extra_domains : site.extra_domains || ''
+    )
       .split(/[\s,]+/)
       .map((d) => d.trim().toLowerCase())
       .filter(Boolean);
@@ -393,7 +410,7 @@ router.post(
       `UPDATE sites SET domain = ?, extra_domains = ?, runtime_version = ?, install_command = ?,
          start_command = ?, app_port = ?, port = ?, env_json = ?, memory_mb = ?, cpu_limit = ?,
          notes = ?, owner_id = ?, custom_image = ?, extra_volumes = ?, extra_labels = ?,
-         docker_network = ?, system_packages = ? WHERE id = ?`
+         docker_network = ?, system_packages = ?, allow_framing = ? WHERE id = ?`
     ).run(
       domain,
       extras.join(','),
@@ -414,14 +431,53 @@ router.post(
       String(
         body.system_packages !== undefined ? body.system_packages : site.system_packages
       ).slice(0, 500),
+      body.allow_framing === undefined
+        ? site.allow_framing || 0
+        : body.allow_framing === true || body.allow_framing === 'true' || body.allow_framing === '1'
+          ? 1
+          : 0,
       site.id
     );
 
     audit(req, 'site.settings', site.name);
+
+    /*
+     * Keep the proxy host in step, without being asked.
+     *
+     * Changing a site's port or its domains here is exactly what leaves the
+     * reverse proxy pointing somewhere that no longer answers - and the
+     * symptom arrives later, as "the domain stopped working", with nothing to
+     * connect it back to this form. The panel created that host and knows what
+     * it should say, so it corrects it now rather than waiting to be told.
+     *
+     * Only a host the panel is already linked to: taking over someone else's
+     * is a decision, and decisions do not belong in a side effect.
+     */
+    let proxyNote = '';
+    const moved =
+      String(domain) !== String(site.domain || '') ||
+      extras.join(',') !== String(site.extra_domains || '') ||
+      Number(hostPort) !== Number(site.port);
+
+    if (moved && site.npm_proxy_id && npmplus.isEnabled()) {
+      try {
+        const updated = sites.getSite(site.id);
+        const repair = await npmplus.repairProxy(updated);
+        if (repair.fixed.length) {
+          proxyNote = ' The reverse proxy was updated to match.';
+          audit(req, 'site.proxy_repair', site.name, repair.fixed.join(' '));
+        }
+      } catch (err) {
+        proxyNote = ` The reverse proxy could not be updated: ${err.message}`;
+      }
+    }
+
     return res.json({
       ok: true,
       needsRebuild: true,
-      message: 'Saved. Rebuild the container for image, port, env or resource changes to take effect.',
+      message:
+        'Saved. Rebuild the container for image, port, env or resource changes to take effect.' +
+        proxyNote,
     });
   })
 );
@@ -458,6 +514,59 @@ router.post(
         return res.status(409).json({ error: err.message, existingProxy: err.existingProxy });
       }
       return res.status(502).json({ error: err.message, partial: Boolean(err.partial) });
+    }
+  })
+);
+
+/**
+ * Checks a site's proxy host against what the site actually needs, and fixes
+ * whatever has drifted.
+ *
+ * Separate from /proxy (which is "create or re-sync, and get a certificate")
+ * because the common case is different: nothing about the site has changed,
+ * something about the proxy has, and what the user wants is to be told what is
+ * wrong and have it put right - not to re-run the whole certificate dance.
+ */
+router.get(
+  '/api/sites/:id/proxy/check',
+  loadSite,
+  wrap(async (req, res) => {
+    const site = sites.getSite(req.site.id);
+    return res.json(await npmplus.checkProxy(site));
+  })
+);
+
+router.post(
+  '/sites/:id/proxy/repair',
+  loadSite,
+  wrap(async (req, res) => {
+    if (!npmplus.isEnabled()) {
+      return res.status(400).json({ error: 'NPMplus integration is turned off in Settings.' });
+    }
+    const site = sites.getSite(req.site.id);
+    const adopt = req.body.adopt === true || req.body.adopt === 'true';
+    const requestSsl = req.body.ssl === true || req.body.ssl === 'true';
+    try {
+      const result = await npmplus.repairProxy(site, { adopt, requestSsl });
+      db.prepare('UPDATE sites SET npm_proxy_id = ?, npm_cert_id = ?, ssl = ? WHERE id = ?').run(
+        result.proxyId,
+        result.certId || null,
+        result.ssl ? 1 : 0,
+        site.id
+      );
+      audit(req, 'site.proxy_repair', site.name, result.fixed.join(' '));
+      return res.json({
+        ok: true,
+        ...result,
+        message: result.fixed.length
+          ? `Fixed ${result.fixed.length} thing${result.fixed.length === 1 ? '' : 's'}.`
+          : 'Nothing needed fixing.',
+      });
+    } catch (err) {
+      if (err.existingProxy) {
+        return res.status(409).json({ error: err.message, existingProxy: err.existingProxy });
+      }
+      return res.status(502).json({ error: err.message });
     }
   })
 );

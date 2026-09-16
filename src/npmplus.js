@@ -353,7 +353,72 @@ function domainsOf(site) {
   return [...new Set(list)];
 }
 
-function proxyPayload(site, domains, certificateId) {
+/* ------------------------------------------------------------------ *
+ * The panel's own block inside a proxy host's advanced config
+ * ------------------------------------------------------------------ *
+ * Anything the panel needs nginx to do goes between these markers, and
+ * everything outside them is left exactly as it was found. Before this, every
+ * sync sent advanced_config: '' - so a hand-written directive survived until
+ * the next time anyone pressed Re-sync, and then vanished without a word.
+ */
+const MANAGED_BEGIN = '# >>> hostpanel: managed, do not edit this block >>>';
+const MANAGED_END = '# <<< hostpanel <<<';
+
+/*
+ * NPMplus adds X-Frame-Options: SAMEORIGIN to every proxied response, so a site
+ * cannot be embedded anywhere else even if the site itself is happy to be.
+ * `more_clear_headers` rather than `proxy_hide_header`: the latter only drops
+ * headers the *upstream* sent, and this one is added by nginx itself
+ * afterwards.
+ *
+ * Off unless a site asks for it. The panel's own preview does not need it -
+ * that is served back through the panel - so this exists for embedding a site
+ * somewhere else, and clearing a clickjacking defence is not something to do
+ * to someone's public site as a side effect of pressing Fix.
+ */
+const FRAMING_BLOCK = [
+  MANAGED_BEGIN,
+  '# Allows this site to be shown inside a frame on another page.',
+  'more_clear_headers "X-Frame-Options";',
+  MANAGED_END,
+].join('\n');
+
+/** Strips the panel's block from an advanced config, leaving the rest intact. */
+function withoutManagedBlock(advanced) {
+  const text = String(advanced || '');
+  const start = text.indexOf(MANAGED_BEGIN);
+  if (start === -1) return text.trim();
+  const end = text.indexOf(MANAGED_END, start);
+  const tail = end === -1 ? '' : text.slice(end + MANAGED_END.length);
+  return (text.slice(0, start) + tail).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** What the advanced config should say for this site, keeping the user's own lines. */
+function advancedConfigFor(site, existingAdvanced) {
+  const theirs = withoutManagedBlock(existingAdvanced);
+  if (!site.allow_framing) return theirs;
+  return theirs ? `${theirs}\n\n${FRAMING_BLOCK}` : FRAMING_BLOCK;
+}
+
+/**
+ * Custom locations, carried across a sync.
+ *
+ * Reduced to the fields the create/update schema accepts: a host read back
+ * from the API carries extra keys, and sending one of those back rejects the
+ * whole request with "must NOT have additional properties".
+ */
+function keepLocations(locations) {
+  if (!Array.isArray(locations)) return [];
+  return locations.map((l) => ({
+    path: l.path,
+    advanced_config: l.advanced_config || '',
+    forward_scheme: l.forward_scheme,
+    forward_host: l.forward_host,
+    forward_port: l.forward_port,
+  }));
+}
+
+function proxyPayload(site, domains, certificateId, existingHost) {
   const c = cfg();
   const forwardHost = c.hostIp;
   if (!forwardHost) {
@@ -379,8 +444,8 @@ function proxyPayload(site, domains, certificateId) {
     block_exploits: true,
     caching_enabled: false,
     allow_websocket_upgrade: true,
-    advanced_config: '',
-    locations: [],
+    advanced_config: advancedConfigFor(site, existingHost && existingHost.advanced_config),
+    locations: keepLocations(existingHost && existingHost.locations),
     meta: { letsencrypt_agree: false, dns_challenge: false },
   };
 }
@@ -496,9 +561,23 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
   }
 
   // Step 1: make sure the proxy host exists and points at the right port.
+  //
+  // The current host is read first so its advanced config and custom
+  // locations survive the update. Sending a blank advanced_config here is how
+  // a hand-written directive used to disappear at the next Re-sync.
+  let current = null;
   if (proxyId) {
     try {
-      await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, site.npm_cert_id));
+      current = await getProxyHost(proxyId);
+    } catch (_) {
+      current = null;
+    }
+    try {
+      await api(
+        'PUT',
+        `/api/nginx/proxy-hosts/${proxyId}`,
+        proxyPayload(site, domains, site.npm_cert_id, current)
+      );
     } catch (err) {
       if (err.statusCode === 404) {
         proxyId = null;
@@ -508,7 +587,7 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
     }
   }
   if (!proxyId) {
-    const created = await api('POST', '/api/nginx/proxy-hosts', proxyPayload(site, domains, 0));
+    const created = await api('POST', '/api/nginx/proxy-hosts', proxyPayload(site, domains, 0, null));
     if (!created || !created.id) throw new Error('NPMplus did not return a proxy host id');
     proxyId = created.id;
   }
@@ -519,7 +598,11 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
   if (requestSsl) {
     try {
       if (!certId) certId = await requestCertificate(domains);
-      await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, certId));
+      await api(
+        'PUT',
+        `/api/nginx/proxy-hosts/${proxyId}`,
+        proxyPayload(site, domains, certId, current)
+      );
       ssl = true;
     } catch (err) {
       // The site still works over HTTP; surface the reason to the caller.
@@ -533,6 +616,196 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
   }
 
   return { proxyId, certId, ssl };
+}
+
+/* ------------------------------------------------------------------ *
+ * Checking a proxy host, and putting it right
+ * ------------------------------------------------------------------ *
+ * A proxy host drifts out of step with the panel in ways nobody notices until
+ * a site stops answering: the site's port was changed and the proxy still
+ * forwards to the old one, a domain was added here but never there, the host
+ * IP changed, somebody disabled the host while debugging something else. Every
+ * one of those shows up as "the site is up but the domain does not work",
+ * which is a miserable thing to diagnose by hand across a dozen sites.
+ *
+ * So: say exactly what is wrong in words, and offer to fix it.
+ */
+
+/** Compares what NPMplus has against what this site needs. */
+function diagnoseProxy(site, host) {
+  const c = cfg();
+  const domains = domainsOf(site);
+  const issues = [];
+  const add = (code, says) => issues.push({ code, says });
+
+  if (!domains.length) {
+    add('no_domain', 'This site has no domain, so there is nothing for the proxy to forward.');
+    return issues;
+  }
+  if (!c.hostIp) {
+    add('no_host_ip', 'Host IP is not set in Settings, so the proxy has nowhere to forward to.');
+    return issues;
+  }
+  if (!host) {
+    add('missing', `No proxy host exists for ${domains.join(', ')}.`);
+    return issues;
+  }
+
+  const have = (host.domain_names || []).map((d) => String(d).toLowerCase()).sort();
+  const want = [...domains].sort();
+  if (have.join(',') !== want.join(',')) {
+    add('domains', `The proxy host serves ${have.join(', ') || 'nothing'}, but this site has ${want.join(', ')}.`);
+  }
+  if (String(host.forward_host) !== String(c.hostIp)) {
+    add('forward_host', `It forwards to ${host.forward_host}, but this panel's host is ${c.hostIp}.`);
+  }
+  if (Number(host.forward_port) !== Number(site.port)) {
+    add('forward_port', `It forwards to port ${host.forward_port}, but this site listens on ${site.port}.`);
+  }
+  if (host.forward_scheme && host.forward_scheme !== 'http') {
+    add('scheme', `It forwards over ${host.forward_scheme}; the container speaks plain http.`);
+  }
+  if (host.enabled === 0 || host.enabled === false) {
+    add('disabled', 'The proxy host is turned off in NPMplus.');
+  }
+  if (!host.allow_websocket_upgrade) {
+    add('websocket', 'WebSocket upgrades are off, so live features on the site will not connect.');
+  }
+  const hasFraming = String(host.advanced_config || '').includes(MANAGED_BEGIN);
+  if (site.allow_framing && !hasFraming) {
+    add('framing', 'This site is set to allow framing, but the proxy still sends X-Frame-Options.');
+  }
+  if (!site.allow_framing && hasFraming) {
+    add('framing', 'The proxy still clears X-Frame-Options, but this site no longer allows framing.');
+  }
+  return issues;
+}
+
+/**
+ * Finds the proxy host for a site and reports what is wrong with it.
+ *
+ * Never changes anything - this is what the page shows before offering a fix.
+ */
+async function checkProxy(site) {
+  if (!isEnabled()) {
+    return { ok: false, reachable: false, issues: [], error: 'NPMplus integration is turned off.' };
+  }
+  let host = null;
+  try {
+    if (site.npm_proxy_id) host = await getProxyHost(site.npm_proxy_id);
+    if (!host) {
+      const domains = domainsOf(site);
+      if (domains.length) host = await findProxyHostByDomain(domains[0]);
+    }
+  } catch (err) {
+    return { ok: false, reachable: false, issues: [], error: err.message };
+  }
+  const issues = diagnoseProxy(site, host);
+  return {
+    ok: issues.length === 0,
+    reachable: true,
+    host: host ? { id: host.id, domains: host.domain_names } : null,
+    issues,
+  };
+}
+
+/**
+ * Fixes whatever checkProxy found, and reports what it changed.
+ *
+ * `adopt` is required before taking over a proxy host the panel did not
+ * create, exactly as in syncProxyHost: repointing a host that currently serves
+ * something else is not a repair.
+ */
+async function repairProxy(site, { adopt = false, requestSsl = false } = {}) {
+  const domains = domainsOf(site);
+  if (!domains.length) throw new Error('This site has no domain, so there is nothing to proxy.');
+
+  let host = null;
+  if (site.npm_proxy_id) host = await getProxyHost(site.npm_proxy_id);
+  if (!host) {
+    const existing = await findProxyHostByDomain(domains[0]);
+    if (existing && !adopt) {
+      const err = new Error(
+        `NPMplus already has proxy host #${existing.id} for ${domains[0]}, forwarding to ` +
+          `${existing.forward_scheme}://${existing.forward_host}:${existing.forward_port}. ` +
+          `Taking it over would repoint it at this site (${cfg().hostIp}:${site.port}).`
+      );
+      err.existingProxy = {
+        id: existing.id,
+        domains: existing.domain_names,
+        forward: `${existing.forward_scheme}://${existing.forward_host}:${existing.forward_port}`,
+      };
+      throw err;
+    }
+    host = existing;
+  }
+
+  const issues = diagnoseProxy(site, host);
+  if (!issues.length && !requestSsl) {
+    return { proxyId: host ? host.id : null, certId: site.npm_cert_id || null,
+      ssl: Boolean(site.ssl), issues: [], fixed: [] };
+  }
+
+  let proxyId = host ? host.id : null;
+  const fixed = [];
+
+  if (!proxyId) {
+    const created = await api('POST', '/api/nginx/proxy-hosts', proxyPayload(site, domains, 0, null));
+    if (!created || !created.id) throw new Error('NPMplus did not return a proxy host id');
+    proxyId = created.id;
+    fixed.push(`Created proxy host #${proxyId} for ${domains.join(', ')}.`);
+  } else {
+    await api(
+      'PUT',
+      `/api/nginx/proxy-hosts/${proxyId}`,
+      proxyPayload(site, domains, site.npm_cert_id, host)
+    );
+    for (const issue of issues) {
+      if (issue.code === 'disabled') continue; // handled by its own endpoint below
+      fixed.push(REPAIR_SAYS[issue.code] ? REPAIR_SAYS[issue.code](site, domains) : issue.says);
+    }
+  }
+
+  // Re-enabling is its own endpoint; `enabled` is not a field the update
+  // schema accepts, and sending it rejects the whole request.
+  if (issues.some((i) => i.code === 'disabled')) {
+    await enableProxyHost(proxyId);
+    fixed.push('Turned the proxy host back on.');
+  }
+
+  let certId = site.npm_cert_id || null;
+  let ssl = Boolean(site.ssl);
+  if (requestSsl && !certId) {
+    certId = await requestCertificate(domains);
+    await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, certId, host));
+    ssl = true;
+    fixed.push('Requested a certificate and turned on HTTPS.');
+  }
+
+  return { proxyId, certId, ssl, issues, fixed };
+}
+
+/* What each repaired issue is called afterwards, in the past tense. */
+const REPAIR_SAYS = {
+  domains: (site, domains) => `Set the domains to ${domains.join(', ')}.`,
+  forward_host: (site) => `Pointed it at ${cfg().hostIp}.`,
+  forward_port: (site) => `Pointed it at port ${site.port}.`,
+  scheme: () => 'Set the forwarding scheme back to http.',
+  websocket: () => 'Turned WebSocket upgrades on.',
+  framing: (site) =>
+    site.allow_framing
+      ? 'Cleared the X-Frame-Options header so this site can be framed.'
+      : 'Restored the X-Frame-Options header.',
+};
+
+async function enableProxyHost(id) {
+  try {
+    await api('POST', `/api/nginx/proxy-hosts/${id}/enable`);
+    return true;
+  } catch (err) {
+    if (err.statusCode === 404) return false;
+    throw err;
+  }
 }
 
 async function deleteProxyHost(id) {
@@ -566,6 +839,12 @@ module.exports = {
   testConnection,
   getSession,
   syncProxyHost,
+  checkProxy,
+  repairProxy,
+  diagnoseProxy,
+  enableProxyHost,
+  advancedConfigFor,
+  withoutManagedBlock,
   deleteProxyHost,
   getProxyHost,
   listProxyHosts,

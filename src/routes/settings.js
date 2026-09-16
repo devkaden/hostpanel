@@ -271,4 +271,65 @@ router.get(
   })
 );
 
+/**
+ * Checks every site's proxy host in one pass, and optionally fixes them.
+ *
+ * Doing this site by site is the reason proxy hosts drift in the first place:
+ * nobody opens twelve pages to find the one whose port moved. Sites are
+ * handled one at a time rather than in parallel - NPMplus is a small container
+ * on somebody's homelab, and twelve simultaneous API calls is a rude thing to
+ * do to it.
+ */
+router.post(
+  '/api/npmplus/check-all',
+  auth.requireAdmin,
+  wrap(async (req, res) => {
+    if (!npmplus.isEnabled()) {
+      return res.status(400).json({ error: 'NPMplus integration is turned off.' });
+    }
+    const fix = req.body.fix === true || req.body.fix === 'true';
+    const rows = db.prepare('SELECT * FROM sites ORDER BY name').all();
+    const results = [];
+
+    for (const site of rows) {
+      if (!npmplus.domainsOf(site).length) continue; // nothing to proxy
+      try {
+        if (!fix) {
+          const check = await npmplus.checkProxy(site);
+          results.push({
+            id: site.id, name: site.name, ok: check.ok,
+            issues: check.issues.map((i) => i.says), fixed: [], error: check.error || null,
+          });
+          continue;
+        }
+        const repair = await npmplus.repairProxy(site);
+        db.prepare('UPDATE sites SET npm_proxy_id = ?, npm_cert_id = ?, ssl = ? WHERE id = ?').run(
+          repair.proxyId, repair.certId || null, repair.ssl ? 1 : 0, site.id
+        );
+        results.push({
+          id: site.id, name: site.name, ok: true,
+          issues: repair.issues.map((i) => i.says), fixed: repair.fixed, error: null,
+        });
+      } catch (err) {
+        // One site that cannot be fixed must not stop the other eleven.
+        results.push({
+          id: site.id, name: site.name, ok: false, issues: [], fixed: [],
+          error: err.existingProxy
+            ? `${err.message} Open this site to take it over.`
+            : err.message,
+        });
+      }
+    }
+
+    if (fix) audit(req, 'npmplus.check_all', 'all sites', `${results.length} checked`);
+    return res.json({
+      ok: true,
+      fixed: fix,
+      checked: results.length,
+      problems: results.filter((r) => !r.ok || r.fixed.length).length,
+      results,
+    });
+  })
+);
+
 module.exports = router;
