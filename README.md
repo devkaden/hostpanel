@@ -204,6 +204,28 @@ arranged. The **Upload folder** button goes through the file picker instead,
 which works consistently in every browser, and is also the answer for files
 stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
 
+### When the browser will not read your files at all
+
+A `NotReadableError` on every file means the browser is being refused access to
+your disk, before anything reaches the network. macOS grants this per folder,
+so it commonly fails for files in one place and works for the same files moved
+elsewhere — **Downloads is its own permission, separate from Desktop and
+Documents**, which is why a project unzipped into `~/Downloads` can fail while
+everything you uploaded before worked. Fix it in **System Settings → Privacy &
+Security → Files and Folders → Safari**, or just move the project out of
+Downloads. Files kept in iCloud, OneDrive or Dropbox must also be downloaded
+locally.
+
+No amount of care in the panel fixes a file the browser will not open, so the
+file manager also offers **Copy from your computer**, which hands you an rsync
+command pointed at the site's directory:
+
+```bash
+rsync -av --exclude node_modules --exclude .git ~/path/to/mysite/ root@<host-ip>:/opt/hostpanel/data/sites/mysite/app/
+```
+
+That runs as you, over ssh, and is the faster option for a real project anyway.
+
 **Files are read into memory before the request, never handed over as file
 handles.** This is the single thing that makes uploads work in Safari. Passing
 the browser's own `File` object to the request is the obvious approach and it

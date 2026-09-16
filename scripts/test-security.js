@@ -364,6 +364,21 @@ console.log('\nin-app dialogs replace the browser ones');
 }
 
 /* --------------------------------------------- 5. security headers set --- */
+console.log('\ncache headers do not break downloads');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');
+  // Safari's download manager hands the *cached* response to the downloader,
+  // so no-store makes every file download fail silently. no-cache still forces
+  // revalidation, which is all the panel needs.
+  check('panel responses are not marked no-store',
+    !/Cache-Control['"]?,\s*['"][^'"]*no-store/.test(src),
+    'no-store on panel responses breaks downloads in Safari');
+  check('but they still must revalidate',
+    /Cache-Control', 'no-cache, must-revalidate, private'/.test(src));
+  check('static assets are versioned so an update is a new URL',
+    /ASSET_VERSION/.test(src));
+}
+
 console.log('\nsecurity headers declared in src/index.js');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');

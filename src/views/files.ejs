@@ -63,6 +63,7 @@
   <p class="muted small mt">
     Up to <%= maxUploadMb %> MB per file. Files land in the folder you are viewing.
     <button class="btn btn-sm btn-ghost" id="upload-diag">Test uploads</button>
+    <button class="btn btn-sm btn-ghost" id="copy-cmd">Copy from your computer</button>
   </p>
 </div>
 
@@ -1176,12 +1177,14 @@
       });
       var msg = ok ? 'The rest went through.' : 'Nothing was uploaded.';
       if (readFailed) {
-        msg += ' The browser could not open some of the dropped files, so they ' +
-          'were never sent. Use the Upload folder button instead of dragging - ' +
-          'it goes through the file picker, which is reliable in every browser. ' +
-          'Safari in particular loses access to a dropped folder almost ' +
-          'immediately. If the files live in iCloud, OneDrive or Dropbox, make ' +
-          'sure they are downloaded locally first.';
+        msg += ' The browser refused to read the files, so nothing was ever sent ' +
+          'to the panel - this is between the browser and your disk, not the ' +
+          'network. On a Mac the usual cause is Safari not having permission to ' +
+          'the folder: System Settings, Privacy & Security, Files and Folders, ' +
+          'Safari, and turn on Desktop, Documents and Downloads. Files kept in ' +
+          'iCloud, OneDrive or Dropbox must also be downloaded locally first. ' +
+          'If neither applies, the "Copy from your computer" button gives you an ' +
+          'rsync command that bypasses the browser entirely.';
       }
       await HP.alert({
         title: failures.length === 1 ? 'One file could not be uploaded' :
@@ -1253,6 +1256,41 @@
 
   var diagBtn = document.getElementById('upload-diag');
   if (diagBtn) diagBtn.addEventListener('click', runUploadDiagnostic);
+
+  /**
+   * Shows an rsync command that copies a folder straight into this site.
+   *
+   * Browser uploads depend on the browser being willing to read local files,
+   * and that is not always in anyone's gift: macOS can refuse Safari access to
+   * Desktop, Documents and Downloads, and no amount of care on this side fixes
+   * a file the browser will not open. rsync does not care - it runs as you,
+   * over ssh, and it is the faster option for a real project anyway.
+   */
+  var APP_DIR = <%- jsonScript(dirs.app) %>;
+  var HOST_IP = <%- jsonScript(hostIp) %>;
+
+  document.getElementById('copy-cmd').addEventListener('click', function () {
+    var host = HOST_IP || location.hostname;
+    var target = 'root@' + host + ':' + APP_DIR + '/';
+    var cmd = 'rsync -av --exclude node_modules --exclude .git ' +
+      '~/path/to/' + SITE_NAME + '/ ' + target;
+
+    HP.alert({
+      title: 'Copy files in from your computer',
+      message: 'Run this in Terminal on your Mac, with the real path to your ' +
+        'project in place of ~/path/to/' + SITE_NAME + '. The trailing slash ' +
+        'matters: it copies the contents of the folder rather than the folder ' +
+        'itself. Add --delete to remove files here that are gone locally.',
+      input: true,
+      readonly: true,
+      copyValue: cmd,
+      value: cmd,
+      tone: 'info',
+      wide: true,
+      confirmText: 'Copy',
+      cancelText: 'Close'
+    });
+  });
 
   /* ------------------------------------------- whole-page drop zone -- */
   var overlay = document.getElementById('drop-overlay');

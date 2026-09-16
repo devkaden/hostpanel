@@ -9,7 +9,7 @@ const { pipeline } = require('stream/promises');
 const express = require('express');
 
 const config = require('../config');
-const { audit } = require('../db');
+const { audit, getSetting } = require('../db');
 const fm = require('../filemanager');
 const sites = require('../sites');
 const { loadSite, wrap } = require('../middleware');
@@ -41,6 +41,7 @@ router.get(
       listing,
       dirs: sites.siteDirs(req.site),
       maxUploadMb: Math.round(config.maxUploadBytes / 1024 / 1024),
+      hostIp: getSetting('host_ip') || '',
     });
   })
 );

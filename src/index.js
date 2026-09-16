@@ -138,8 +138,14 @@ app.use((req, res, next) => {
   //
   // /static and /vendor are mounted earlier and never reach this, so the
   // fingerprint-free assets there keep their long max-age.
-  res.set('Cache-Control', 'no-store, must-revalidate');
-  res.set('Pragma', 'no-cache');
+  //
+  // "no-cache" rather than "no-store" deliberately. They sound interchangeable
+  // and are not: no-store forbids writing the response to disk at all, and
+  // Safari's download manager works by handing the cached response to the
+  // downloader - so no-store makes every file download silently fail. no-cache
+  // still forces revalidation before any reuse, which is all that is needed
+  // here, and downloads keep working.
+  res.set('Cache-Control', 'no-cache, must-revalidate, private');
   next();
 });
 
