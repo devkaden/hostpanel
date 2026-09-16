@@ -209,11 +209,13 @@ console.log('\ndropped-folder file handles');
 {
   const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'files.ejs'), 'utf8');
 
-  // Chrome releases access to a dropped folder shortly after the drop, so a
-  // File captured during traversal goes stale and the browser aborts the
-  // upload mid-body. The File must be resolved immediately before sending.
+  // Chrome only keeps a dropped folder readable for a short window. Past it,
+  // entry.file() either fails (the upload aborts mid-body) or never calls back
+  // at all (the upload never starts). Both were observed. So: traverse without
+  // touching entry.file(), then read the bytes up front, with every read
+  // guarded by a timeout so nothing can hang.
   const traversal = view
-    .slice(view.indexOf('function readEntry'), view.indexOf('function resolveFile'))
+    .slice(view.indexOf('function readEntry'), view.indexOf('function entryToFile'))
     // Comments explain why this must not happen; only real code counts.
     .replace(/\/\/[^\n]*/g, '')
     .replace(/\/\*[\s\S]*?\*\//g, '');
@@ -222,13 +224,27 @@ console.log('\ndropped-folder file handles');
     'readEntry still calls entry.file() during traversal');
   check('traversal keeps the entry instead',
     /entry:\s*entry/.test(traversal));
-  check('a late resolver exists', /function resolveFile/.test(view));
-  check('the resolver is what calls entry.file()',
-    /item\.entry\.file\(/.test(view));
-  check('upload resolves the file before sending',
-    /await resolveFile\(item\)/.test(view));
-  check('a stale handle is explained to the user',
-    /released access/.test(view));
+
+  // Comments discuss entry.file() at length; only real code counts.
+  const viewCode = view
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  check('every entry.file() call is timeout-guarded',
+    /function entryToFile/.test(view) &&
+      (viewCode.match(/entry\.file\s*\(/g) || []).length === 1,
+    'entry.file() is called outside entryToFile()');
+  check('entryToFile rejects rather than hanging',
+    /timed out reading the file handle/.test(view));
+  check('bytes are read before any upload starts',
+    /function materialise/.test(view) && /await readPhase\(/.test(view));
+  check('the read is bounded so a big folder cannot exhaust the tab',
+    /MATERIALISE_MAX_FILE/.test(view) && /MATERIALISE_BUDGET/.test(view));
+  check('the upload prefers bytes already held',
+    /await bodyFor\(item, fresh\)/.test(view));
+  check('an unreadable file fails with an explanation, not a timeout',
+    /Could not read "/.test(view) && /iCloud/.test(view));
+  check('the deleted late resolver is really gone',
+    !/resolveFile/.test(view));
 }
 
 console.log('\nin-app dialogs replace the browser ones');

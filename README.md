@@ -181,11 +181,22 @@ ever learns that the form "ended unexpectedly" — with no indication of which
 file or which limit. A raw body has no form to end, so a failure names the file
 and the reason.
 
-Files dropped as a folder are resolved from their directory entry immediately
-before each one is sent, never captured up front. Chrome releases access to a
-dropped folder shortly after the drop, so a `File` captured during traversal
-goes stale and the browser aborts the upload mid-body — which the server sees
-only as a connection that ended early.
+Files dropped as a folder are **read into memory before the first upload
+starts**, not opened one at a time as the queue reaches them. A browser keeps a
+dropped directory readable for a short window and then takes the access back.
+Past that point opening a file either fails — the upload aborts mid-body, and
+the server sees only a connection that ended early — or never returns an answer
+at all, which leaves the queue waiting on a callback that is never coming. Both
+of those were real. Reading during the window the access exists removes the
+dependency on it, and every read is wrapped in its own timeout so nothing can
+hang regardless. The read is capped at 20 MB per file and 250 MB in total so a
+large folder cannot exhaust the tab; anything bigger falls back to its handle.
+
+A file the browser cannot open — most often one that lives in iCloud, OneDrive
+or Dropbox and has not been downloaded locally — is reported by name with that
+explanation, before the upload starts rather than after a timeout. The **Upload
+folder** button is the reliable route for those, since the file picker forces
+the download.
 
 Both ends have a timeout, because a request that never settles is worse than
 one that fails: the socket stays tied up, and browsers allow only about six
@@ -347,11 +358,17 @@ password can come with a Copy button.
 Run the checks yourself:
 
 ```bash
-npm test            # syntax, NPMplus client, security, ports and container specs
+npm test            # everything below, in order
 npm run test:security
 npm run test:npmplus
 npm run test:config
+npm run test:uploads
 ```
+
+`test:uploads` lifts the file-reading code straight out of the file manager and
+runs it against a fake directory API that reproduces each way a browser drops
+access to a dropped folder — refusing the read, and never answering at all — so
+the hang and the mid-body abort both stay fixed.
 
 All of it runs without dependencies installed and without touching Docker or
 your real NPMplus.

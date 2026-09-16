@@ -636,28 +636,93 @@
     });
   }
 
-  /**
-   * Produces the actual File for an item, as late as possible.
-   * Items from a file input already carry one; items from a drop carry a
-   * directory entry that has to be asked each time.
-   */
-  function resolveFile(item) {
-    if (item.file) return Promise.resolve(item.file);
+  /** entry.file() can hang without calling either callback. Never wait forever. */
+  function entryToFile(entry, ms) {
     return new Promise(function (resolve, reject) {
-      if (!item.entry || !item.entry.file) {
-        reject(new Error('No file handle for ' + item.path));
-        return;
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error('timed out reading the file handle'));
+      }, ms || 10000);
+
+      try {
+        entry.file(
+          function (file) {
+            if (settled) return;
+            settled = true; clearTimeout(timer); resolve(file);
+          },
+          function () {
+            if (settled) return;
+            settled = true; clearTimeout(timer);
+            reject(new Error('the browser refused to open the file'));
+          }
+        );
+      } catch (err) {
+        if (!settled) { settled = true; clearTimeout(timer); reject(err); }
       }
-      item.entry.file(
-        function (file) { resolve(file); },
-        function () {
-          reject(new Error(
-            'The browser released access to "' + item.path + '". ' +
-            'Use the Upload folder button instead of dragging.'
-          ));
-        }
-      );
     });
+  }
+
+  // Materialising a file means reading its bytes into memory up front, so the
+  // upload no longer depends on the browser still having access to the
+  // original. Bounded so a huge folder cannot exhaust the tab.
+  var MATERIALISE_MAX_FILE = 20 * 1024 * 1024;
+  var MATERIALISE_BUDGET = 250 * 1024 * 1024;
+
+  /**
+   * Reads what it can while access is definitely alive.
+   *
+   * A dropped folder is only readable for a short window: afterwards Chrome
+   * either fails the read (the upload aborts mid-body) or never answers
+   * entry.file() at all. Both were happening. Taking the bytes now removes the
+   * dependency on that window entirely.
+   */
+  async function materialise(items, onProgress) {
+    var used = 0;
+    for (var i = 0; i < items.length; i += 1) {
+      var item = items[i];
+      onProgress(i, items.length, item.path);
+      if (!item.entry || item.file || item.blob) continue;
+
+      try {
+        var file = await entryToFile(item.entry, 10000);
+        item.file = file; // keep as a fallback even if not materialised
+        if (file.size <= MATERIALISE_MAX_FILE && used + file.size <= MATERIALISE_BUDGET) {
+          item.blob = new Blob([await file.arrayBuffer()], { type: file.type || '' });
+          used += file.size;
+        }
+      } catch (err) {
+        item.readError = err.message;
+      }
+    }
+  }
+
+  /**
+   * The best available body for this item, preferring bytes already held.
+   *
+   * Bytes in memory never go stale, so a materialised file is used on the retry
+   * too - asking for a fresh handle there would only risk the read failing
+   * again, slowly.
+   */
+  async function bodyFor(item, fresh) {
+    if (item.blob) return item.blob;
+    if (item.entry) {
+      try {
+        var file = await entryToFile(item.entry, 10000);
+        return file;
+      } catch (err) {
+        if (item.blob) return item.blob;
+        if (item.file && !fresh) return item.file;
+        throw new Error(
+          'Could not read "' + item.path + '" from disk. If it lives in iCloud, ' +
+          'OneDrive or Dropbox, make sure it is downloaded locally - or use the ' +
+          'Upload folder button instead of dragging.'
+        );
+      }
+    }
+    if (item.file) return item.file;
+    throw new Error('No readable data for ' + item.path);
   }
 
   // Junk that is rebuilt on the server or belongs to version control. Sending
@@ -742,22 +807,44 @@
   }
 
   /**
-   * Resolves the File as late as possible, then uploads it. One retry, since a
-   * stalled connection is usually transient - and the File is resolved again
-   * on the retry rather than reusing a handle that may have just gone stale.
+   * Uploads one item. The first attempt uses whatever bytes are already held,
+   * so a dropped folder the browser has since released still goes through. The
+   * retry asks for a fresh handle, which is the right move when the failure was
+   * a stalled connection rather than a read problem.
    */
   async function uploadOne(item, onFraction) {
-    var attempt = async function () {
-      var file = await resolveFile(item);
-      return putFile(item, file, onFraction);
+    var attempt = async function (fresh) {
+      var body = await bodyFor(item, fresh);
+      return putFile(item, body, onFraction);
     };
     try {
-      return await attempt();
+      return await attempt(false);
     } catch (err) {
-      if (/cancelled|released access/i.test(err.message)) throw err;
+      if (/cancelled/i.test(err.message)) throw err;
+      // A read failure will not read any better on a second pass.
+      if (/Could not read|No readable data/i.test(err.message)) throw err;
       onFraction(0);
-      return attempt();
+      return attempt(true);
     }
+  }
+
+  /**
+   * Reads the dropped files into memory before any upload starts.
+   *
+   * This is the step that fixes dragged folders. Chrome keeps a dropped
+   * directory readable for a short window; past it, entry.file() either fails
+   * (the upload aborted mid-body) or never answers at all (the upload never
+   * started). Reading during that window removes the dependency on it.
+   */
+  async function readPhase(entries, label) {
+    var needsRead = entries.some(function (e) { return e.entry && !e.blob && !e.file; });
+    if (!needsRead) return;
+
+    await materialise(entries, function (i, n, name) {
+      var pct = Math.round((i / n) * 100);
+      label.textContent = 'Reading ' + n + ' file' + (n === 1 ? '' : 's') +
+        ' - ' + pct + '%' + (name ? ' - ' + name : '');
+    });
   }
 
   async function uploadFiles(entries) {
@@ -787,8 +874,8 @@
 
     if (!entries.length) { HP.toast('Nothing left to upload', 'error'); return; }
 
-    // Progress is counted in files rather than bytes: sizes are unknown until
-    // each File is resolved, which now happens just before it is sent.
+    // Progress is counted in files rather than bytes: sizes are not known for
+    // a dropped folder until each file has actually been opened.
     var total = entries.length;
     var doneCount = 0;
     var failures = [];
@@ -813,6 +900,26 @@
       label.textContent = 'Uploading ' + total + ' file' + (total === 1 ? '' : 's') +
         ' - ' + pct + '% (' + doneCount + ' done)' + (names.length ? ' - ' + names[0] : '');
     }
+    tick();
+
+    // Read first, upload second. Doing it in this order is what makes a
+    // dragged folder work at all.
+    try {
+      await readPhase(entries, label);
+    } catch (_) { /* per-file errors are recorded on the items themselves */ }
+
+    // Anything that could not be read is a failure now, not after a timeout.
+    // A file the read phase could not open moments ago will not open now, so
+    // it is reported straight away rather than stalling the queue for 10s.
+    var unreadable = entries.filter(function (e) {
+      if (e.blob || e.file) return false;
+      return !e.entry || !!e.readError;
+    });
+    unreadable.forEach(function (e) {
+      failures.push({ name: e.path, error: (e.readError || 'could not be opened') + ' (see below)' });
+    });
+    entries = entries.filter(function (e) { return unreadable.indexOf(e) === -1; });
+    doneCount = failures.length;
     tick();
 
     var queue = entries.slice();
@@ -847,11 +954,21 @@
     var ok = total - failures.length;
     if (ok) HP.toast('Uploaded ' + ok + ' file' + (ok === 1 ? '' : 's'), 'ok');
     if (failures.length) {
+      var readFailed = failures.some(function (f) { return /see below/.test(f.error); });
+      var msg = ok ? 'The rest went through.' : 'Nothing was uploaded.';
+      if (readFailed) {
+        msg += ' The browser could not open some of the dropped files. That ' +
+          'usually means they are stored in iCloud, OneDrive or Dropbox and ' +
+          'have not been downloaded to this Mac yet. Download them, or use the ' +
+          'Upload folder button instead of dragging.';
+      }
       await HP.alert({
         title: failures.length === 1 ? 'One file could not be uploaded' :
           failures.length + ' files could not be uploaded',
-        message: ok ? 'The rest went through.' : 'Nothing was uploaded.',
-        list: failures.slice(0, 10).map(function (f) { return f.name + ' - ' + f.error; }),
+        message: msg,
+        list: failures.slice(0, 10).map(function (f) {
+          return f.name + ' - ' + f.error.replace(' (see below)', '');
+        }),
         tone: 'danger'
       });
     }
