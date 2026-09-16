@@ -203,6 +203,8 @@ const SETTING_DEFAULTS = {
   require_2fa: 'off',
   // Minimum password length. Raised automatically when 2FA is required.
   min_password_length: '10',
+  // Largest single upload, in MB. Empty means "use the value from .env".
+  max_upload_mb: '',
 
   // Ports. Empty means "use the value from .env / the built-in default",
   // so an untouched install keeps behaving exactly as before.

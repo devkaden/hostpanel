@@ -423,28 +423,32 @@ console.log('\nsystem packages and unreachable apps');
     /framingRefusedBy/.test(sitesSrc) && /x-frame-options/.test(sitesSrc));
   check('and frame-ancestors counts too',
     /frame-ancestors/.test(sitesSrc));
-  // The proxy in front of a site adds its own headers, so probing the
-  // container's port would report everything as fine while the frame stays
-  // blank. NPMplus adds X-Frame-Options by default.
-  check('the address that will be framed is the address that gets probed',
-    /function probeUrl/.test(sitesSrc) && /previewProbe/.test(
-      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'sites.js'), 'utf8')
-    ));
-  check('and a proxy-added header is named as the proxy, not the site',
-    /Your reverse proxy is adding it/.test(view));
-  // proxy_hide_header only strips headers from the upstream. A header the
-  // proxy adds itself needs more_clear_headers, which is the difference
-  // between advice that works and advice that looks right.
-  check('with the rule that actually removes a proxy-added header',
-    /more_clear_headers "X-Frame-Options"/.test(view));
-  check('and names the panel origin to allow, not a wildcard',
-    /frame-ancestors 'self' &lt;%= panelOrigin %&gt;|frame-ancestors 'self' <%= panelOrigin %>/.test(view) ||
-      /panelOrigin/.test(view));
+  /*
+   * The preview is served through the panel rather than framed directly.
+   * Everything the old approach needed - probing for framing headers,
+   * switching to the domain to dodge mixed content, telling the user to edit
+   * their reverse proxy - exists only because the frame pointed somewhere
+   * else. It points at the panel now, so none of it is needed and none of it
+   * should come back.
+   */
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'sites.js'), 'utf8');
+  check('there is a preview proxy route', /'\/preview\/:id/.test(routes));
+  check('it is behind the site access check', /loadSite,/.test(
+    routes.slice(routes.indexOf("'/preview/:id"), routes.indexOf("'/preview/:id") + 400)
+  ));
+  check('the frame points at the panel, not the site',
+    /src="\/preview\/<%= site\.id %>\/"/.test(view));
 
-  check('mixed content is handled by switching to the domain',
-    /location\.protocol === 'https:'/.test(view) && /PREVIEW_DOMAIN_URL/.test(view));
-  check('and explained when there is no domain to switch to',
-    /refuses to embed it/.test(view));
+  // Same-origin is what makes the preview work and also what would let a
+  // site's scripts reach into the panel. The sandbox withholds it.
+  // The comment above the iframe explains why the token is absent, so only
+  // the attribute itself is checked.
+  const sandboxAttr = (view.match(/sandbox="[^"]*"/) || [''])[0];
+  check('the frame is sandboxed without allow-same-origin',
+    sandboxAttr === 'sandbox="allow-scripts allow-forms allow-popups"', sandboxAttr);
+
+  check('the user is not asked to edit their reverse proxy',
+    !/proxy_hide_header|more_clear_headers/.test(view));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

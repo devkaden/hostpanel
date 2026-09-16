@@ -62,6 +62,34 @@ async function containerState(idOrName) {
   return info.State.Status || 'stopped';
 }
 
+/**
+ * State plus the details behind it: when it started, and why it stopped.
+ *
+ * "running" on its own does not distinguish a site that has been up for a
+ * month from one that is crash-looping and happened to be alive at the moment
+ * it was asked. The start time does, and the exit code explains a container
+ * that is not running far better than the word "exited".
+ */
+async function containerHealth(idOrName) {
+  const info = await inspect(idOrName);
+  if (!info) return { state: 'missing' };
+
+  const state = info.State || {};
+  let resolved;
+  if (state.Running) resolved = state.Health ? state.Health.Status : 'running';
+  else if (state.Restarting) resolved = 'restarting';
+  else resolved = state.Status || 'stopped';
+
+  return {
+    state: resolved,
+    startedAt: state.StartedAt && !state.StartedAt.startsWith('0001') ? state.StartedAt : null,
+    finishedAt: state.FinishedAt && !state.FinishedAt.startsWith('0001') ? state.FinishedAt : null,
+    exitCode: typeof state.ExitCode === 'number' ? state.ExitCode : null,
+    restartCount: info.RestartCount || 0,
+    oomKilled: Boolean(state.OOMKilled),
+  };
+}
+
 /** Pull an image, resolving only once the pull stream completes. */
 function pullImage(image, onProgress) {
   return new Promise((resolve, reject) => {
@@ -462,6 +490,7 @@ module.exports = {
   getContainer,
   inspect,
   containerState,
+  containerHealth,
   ensureImage,
   pullImage,
   imageExists,

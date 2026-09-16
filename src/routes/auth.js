@@ -4,6 +4,7 @@ const express = require('express');
 const { db, audit, getSetting } = require('../db');
 const auth = require('../auth');
 const totp = require('../totp');
+const alerts = require('../alerts');
 
 /*
  * The QR code is a convenience, not a requirement.
@@ -66,6 +67,7 @@ router.post('/login', (req, res) => {
 
   if (auth.isLockedOut(username, req.ip)) {
     audit(req, 'auth.lockout', username);
+    alerts.noteLockout({ username, ip: req.ip });
     return fail('Too many failed attempts. Try again in a few minutes.');
   }
 
@@ -79,6 +81,9 @@ router.post('/login', (req, res) => {
   if (!user || !user.active || !passwordOk) {
     auth.recordFailure(username, req.ip);
     audit(req, 'auth.fail', username);
+    // Counted after the failure is recorded, so this attempt is part of the
+    // total the alert reports.
+    alerts.noteFailedLogin({ username, ip: req.ip });
     return fail('Incorrect username or password.');
   }
 
@@ -103,6 +108,7 @@ router.post('/login', (req, res) => {
   return req.session.regenerate((err) => {
     if (err) return fail('Could not start a session. Try again.');
     auth.login(req, user);
+    alerts.noteLogin({ user, ip: req.ip });
     return req.session.save(() => res.redirect(user.must_change_pw ? '/account/password' : next));
   });
 });
@@ -143,6 +149,7 @@ router.post('/login/2fa', (req, res) => {
   // six-digit number with unlimited guesses, which is no factor at all.
   if (auth.isLockedOut(user.username, req.ip)) {
     audit(req, 'auth.2fa_lockout', user.username);
+    alerts.noteLockout({ username: user.username, ip: req.ip });
     return fail('Too many attempts. Try again in a few minutes.');
   }
 
@@ -168,6 +175,9 @@ router.post('/login/2fa', (req, res) => {
   if (!ok) {
     auth.recordFailure(user.username, req.ip);
     audit(req, 'auth.2fa_fail', user.username);
+    // A wrong second factor after a correct password is worth more attention
+    // than a wrong password: whoever is typing already has one of the two.
+    alerts.noteFailedLogin({ username: user.username, ip: req.ip });
     return fail('That code is not right. Codes change every 30 seconds.');
   }
 
@@ -178,7 +188,20 @@ router.post('/login/2fa', (req, res) => {
   return req.session.regenerate((err) => {
     if (err) return fail('Could not start a session. Try again.');
     auth.login(req, user);
-    if (usedRecovery) audit(req, 'auth.2fa_recovery_used', user.username);
+    alerts.noteLogin({ user, ip: req.ip });
+    if (usedRecovery) {
+      audit(req, 'auth.2fa_recovery_used', user.username);
+      // Nobody spends a recovery code casually. Either the phone is gone, or
+      // somebody else has the printout.
+      const left = countRecoveryCodes(auth.findUser(user.id));
+      alerts.raise('recovery_used', {
+        subject: user.username,
+        ip: req.ip,
+        detail: `Signed in with a recovery code instead of an app code. ${left} code${
+          left === 1 ? '' : 's'
+        } left.`,
+      });
+    }
     return req.session.save(() =>
       res.redirect(user.must_change_pw ? '/account/password' : next)
     );
@@ -468,6 +491,11 @@ router.post('/account/2fa/disable', auth.requireAuth, (req, res) => {
   ).run(req.user.id);
   req.session.epoch = auth.bumpSessionEpoch(req.user.id);
   audit(req, 'account.2fa_disabled', req.user.username);
+  alerts.raise('twofactor_disabled', {
+    subject: req.user.username,
+    ip: req.ip,
+    detail: 'This account is now protected by a password alone.',
+  });
   return render(null, 'Two-factor authentication is off for this account.');
 });
 

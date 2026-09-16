@@ -9,12 +9,24 @@ const { pipeline } = require('stream/promises');
 const express = require('express');
 
 const config = require('../config');
-const { audit, getSetting } = require('../db');
+const { audit, getSetting, getNumericSetting } = require('../db');
 const fm = require('../filemanager');
 const sites = require('../sites');
 const { loadSite, wrap } = require('../middleware');
 
 const router = express.Router();
+
+/**
+ * The upload limit in force: the Settings value if set, otherwise .env.
+ *
+ * Read per request rather than captured at boot, so changing it in Settings
+ * takes effect immediately instead of at the next restart - which is what
+ * anyone who has just raised the limit to push a large file expects.
+ */
+function maxUploadBytes() {
+  const mb = getNumericSetting('max_upload_mb', 0);
+  return mb > 0 ? mb * 1024 * 1024 : config.maxUploadBytes;
+}
 
 /* ------------------------------------------------------------------ *
  * File manager page
@@ -40,7 +52,7 @@ router.get(
       site: req.site,
       listing,
       dirs: sites.siteDirs(req.site),
-      maxUploadMb: Math.round(config.maxUploadBytes / 1024 / 1024),
+      maxUploadMb: Math.round(maxUploadBytes() / 1024 / 1024),
       hostIp: getSetting('host_ip') || '',
     });
   })
@@ -172,7 +184,8 @@ router.put(
     const tag = `[upload] ${req.site ? req.site.name : '?'}: ${relative || '(no name)'}`;
     console.log(`${tag} <- start (${req.get('content-length') || 'unknown'} bytes declared)`);
 
-    const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
+    const limit = maxUploadBytes();
+    const mb = Math.round(limit / 1024 / 1024);
     const declared = parseInt(req.get('content-length') || '0', 10);
 
     /**
@@ -192,7 +205,7 @@ router.put(
     };
 
     if (!relative) return rejectEarly(400, 'No file name was supplied');
-    if (declared && declared > config.maxUploadBytes) {
+    if (declared && declared > limit) {
       return rejectEarly(
         413,
         `"${relative}" is ${Math.round(declared / 1024 / 1024)} MB, over the ${mb} MB limit.`
@@ -213,7 +226,7 @@ router.put(
       transform(chunk, _enc, cb) {
         written += chunk.length;
         lastChunkAt = Date.now();
-        if (written > config.maxUploadBytes) {
+        if (written > limit) {
           tooBig = true;
           return cb(new Error(`"${relative}" is over the ${mb} MB limit.`));
         }

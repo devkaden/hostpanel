@@ -7,11 +7,10 @@
       <h1>
         <span class="type-badge"><%= siteTypes[site.type] ? siteTypes[site.type].icon : '?' %></span>
         <%= site.name %>
-        <span class="pill pill-<%= live.state %>" id="state-pill"><span class="dot"></span><%= live.state %></span>
       </h1>
       <p class="sub">
         <%= siteTypes[site.type] ? siteTypes[site.type].label : site.type %>
-        &middot; host port <%= site.port %>
+        &middot; Host Port <%= site.port %>
         <% if (domains.length) { %>
           &middot; <% domains.forEach(function (d, i) { %><a href="http<%= site.ssl ? 's' : '' %>://<%= d %>" target="_blank" rel="noopener"><%= d %></a><%= i < domains.length - 1 ? ', ' : '' %><% }) %>
         <% } %>
@@ -85,8 +84,8 @@
           <button class="btn btn-sm" id="preview-reload" title="Reload the preview">
             <%- icon('refresh') %><span>Refresh</span>
           </button>
-          <a class="btn btn-sm" href="<%= previewUrl %>" target="_blank" rel="noopener">
-            <%- icon('external') %><span>New tab</span>
+          <a class="btn btn-sm" href="<%= previewDomainUrl || previewUrl %>" target="_blank" rel="noopener">
+            <%- icon('external') %><span>New Tab</span>
           </a>
           <button class="btn btn-sm btn-ghost" aria-label="Close" id="preview-hide" title="Hide the preview">
             <%- icon('eyeOff') %><span>Hide</span>
@@ -95,78 +94,34 @@
       </div>
 
       <div class="preview-bar">
-        <span class="preview-url" id="preview-url-label"><%= previewUrl %></span>
-        <% if (domains.length) { %>
-          <span class="muted small">
-            &mdash; this is the site itself, reached directly. Visitors go through
-            <%= domains[0] %>.
-          </span>
-        <% } %>
+        <span class="preview-url" id="preview-url-label"><%= previewDomainUrl || previewUrl %></span>
+        <span class="muted small">
+          &mdash; shown through the panel, so it works whatever your reverse proxy
+          sends.
+        </span>
       </div>
 
-      <div class="alert alert-warn" id="csp-note" style="display:none"></div>
       <div class="alert alert-warn" id="preview-note-live" style="display:none"></div>
 
-<%
-  /* The header that blocks framing can come from the app or from the reverse
-     proxy in front of it. Both are worth naming, because the fix is in a
-     different place for each. */
-  const proxied = previewProbe && previewProbe.framingRefusedBy;
-  const refusedBy = proxied || live.framingRefusedBy;
-%>
-      <% if (refusedBy) { %>
-        <div class="alert alert-info">
-          <strong>This Site Cannot Be Shown in a Frame</strong>
-          <p>
-            The response carries <code><%= refusedBy %></code>, which tells every
-            browser to refuse to embed the page. Nothing the panel does can override
-            that &mdash; the browser would show a blank rectangle.
-          </p>
-          <% if (proxied && !live.framingRefusedBy) { %>
-            <p>
-              <strong>Your reverse proxy is adding it, not the site.</strong>
-              The container itself allows framing; the header appears only once the
-              request passes through the proxy. In NPMplus, open this proxy host, go
-              to the <strong>Advanced</strong> tab, and add:
-            </p>
-            <pre class="code-block">more_clear_headers "X-Frame-Options";
-add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" always;</pre>
-            <p class="muted small">
-              <code>more_clear_headers</code> rather than <code>proxy_hide_header</code>:
-              the latter only strips headers coming from the site behind the proxy, and
-              this one is added by the proxy itself. NPMplus is built on OpenResty, so
-              the directive is available. If it is rejected, the proxy is plain nginx
-              without the headers-more module &mdash; use
-              <code>proxy_hide_header X-Frame-Options;</code> there instead.
-            </p>
-            <p class="muted small">
-              This keeps clickjacking protection for real visitors and allows this
-              panel specifically, which is why it is better than removing the header.
-              To do it for every site at once, put the same two lines in
-              <code>/data/nginx/custom/server_proxy.conf</code> on the NPMplus host and
-              restart it &mdash; that file is included in every proxy host.
-            </p>
-          <% } else { %>
-            <p>
-              The site's own code is sending it. Express with Helmet does by default;
-              <code>frameguard: false</code>, or a CSP naming
-              <code><%= panelOrigin %></code> in <code>frame-ancestors</code>, allows
-              the preview.
-            </p>
-          <% } %>
-          <a class="btn" href="<%= previewDomainUrl || previewUrl %>" target="_blank" rel="noopener">
-            <%- icon('external') %><span>Open in a New Tab</span>
-          </a>
-        </div>
-      <% } else { %>
       <div class="preview-frame size-desktop" id="preview-frame">
+        <!--
+          Served through the panel, so this is same-origin and no framing
+          header, mixed-content rule or closed port can block it.
+
+          allow-same-origin is deliberately absent. Being same-origin with the
+          panel is what makes the preview work, and it is also what would let a
+          site's own scripts reach into the panel's page and act as whoever is
+          signed in. Without that token the browser gives the frame an opaque
+          origin: scripts still run and the page still renders, but it is walled
+          off from everything around it.
+        -->
         <iframe
           id="preview-iframe"
-          src="<%= previewUrl %>"
+          src="/preview/<%= site.id %>/"
           title="Preview of <%= site.name %>"
           loading="lazy"
           referrerpolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+          sandbox="allow-scripts allow-forms allow-popups"></iframe>
         <% if (live.state !== 'running' && live.state !== 'healthy') { %>
           <div class="preview-note">
             The site is <%= live.state %>, so there is nothing to show yet.<br>
@@ -174,7 +129,6 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
           </div>
         <% } %>
       </div>
-      <% } %>
     </div>
   <% } %>
 
@@ -196,6 +150,22 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
             <span class="help" data-help="The port this site is published on. Your reverse proxy forwards your domain here."></span>
           </dd>
           <dt>Type</dt><dd><%= siteTypes[site.type] ? siteTypes[site.type].label : site.type %><%= site.runtime_version ? ' ' + site.runtime_version : '' %></dd>
+          <dt>Uptime</dt>
+          <dd id="stat-uptime">
+            <% if (live.uptimeMs) { %>
+              <%
+                const s = Math.floor(live.uptimeMs / 1000);
+                const d = Math.floor(s / 86400);
+                const h = Math.floor((s % 86400) / 3600);
+                const m = Math.floor((s % 3600) / 60);
+              %><%= d ? d + 'd ' + h + 'h' : (h ? h + 'h ' + m + 'm' : m + 'm') %>
+            <% } else if (live.exitCode !== null && live.exitCode !== undefined && live.state !== 'running') { %>
+              stopped, exit code <%= live.exitCode %>
+            <% } else { %>-<% } %>
+            <% if (live.restartCount > 2) { %>
+              <span class="muted small">&middot; restarted <%= live.restartCount %> times</span>
+            <% } %>
+          </dd>
           <dt>Memory in use</dt><dd id="stat-mem"><%= stats ? Math.round(stats.memoryBytes / 1048576) + ' MB' : '-' %></dd>
           <dt>CPU in use</dt><dd id="stat-cpu"><%= stats ? stats.cpuPercent + ' %' : '-' %></dd>
           <dt>Files</dt><dd><%= disk.human %> across <%= disk.files %> file<%= disk.files === 1 ? '' : 's' %></dd>
@@ -417,10 +387,21 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
             <textarea id="s-labels" name="extra_labels" spellcheck="false" style="min-height:52px"><%= site.extra_labels || '{}' %></textarea>
           </div>
 
+          <p class="muted small">
+            Saving records the change. Anything that describes the container
+            itself &mdash; ports, image, environment, resources &mdash; only
+            takes effect when the container is rebuilt from the saved settings,
+            which is what <strong>Rebuild</strong> at the top of the page does.
+          </p>
           <div class="btn-row">
-            <button class="btn btn-primary" type="submit">Save Settings</button>
-            <button class="btn" type="button" data-action="rebuild">Apply Changes and Restart</button>
-            <button class="btn adv" type="button" onclick="HP.openModal('template-modal')">Save as Preset</button>
+            <button class="btn btn-primary" type="submit">
+              <%- icon('check') %><span>Save Settings</span>
+            </button>
+            <button class="btn" type="button" id="save-and-rebuild"
+                    title="Saves, then recreates the container from the saved settings">
+              <%- icon('apply') %><span>Save and Rebuild</span>
+            </button>
+            <button class="btn adv" type="button" data-save-preset>Save as Preset</button>
           </div>
         </form>
       </div>
@@ -479,9 +460,6 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
 
 <script>
   var SITE_ID = <%= site.id %>;
-  var REACHABLE = <%- jsonScript(live.reachable !== false) %>;
-  var PREVIEW_URL = <%- jsonScript(previewUrl || '') %>;
-  var PREVIEW_DOMAIN_URL = <%- jsonScript(previewDomainUrl || '') %>;
 
   /* ---------------------------------------------------------- actions */
   // The tab bar's buttons are handled in app.js, so every site tab has them.
@@ -509,6 +487,35 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
         btn.textContent = original;
       }
     });
+  });
+
+  // Saves before rebuilding. A rebuild uses the stored settings, so rebuilding
+  // an unsaved form quietly recreates the container from the old values - which
+  // looks exactly like the change not working.
+  var saveRebuild = document.getElementById('save-and-rebuild');
+  if (saveRebuild) {
+    saveRebuild.addEventListener('click', async function () {
+      saveRebuild.disabled = true;
+      saveRebuild.setAttribute('data-busy', '1');
+      try {
+        var form = new FormData(document.getElementById('settings-form'));
+        var payload = {};
+        form.forEach(function (v, k) { payload[k] = v; });
+        await HP.api('/sites/' + SITE_ID + '/settings', { body: payload });
+        await HP.api('/sites/' + SITE_ID + '/action/rebuild');
+        HP.toast('Saved. Rebuilding...', 'ok');
+        showProgress();
+      } catch (err) {
+        HP.toast(err.message, 'error');
+      } finally {
+        saveRebuild.disabled = false;
+        saveRebuild.removeAttribute('data-busy');
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-save-preset]').forEach(function (b) {
+    b.addEventListener('click', function () { HP.openModal('template-modal'); });
   });
 
   var depsInstall = document.getElementById('deps-install');
@@ -637,88 +644,24 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
     } catch (e) { /* ignore */ }
 
     /**
-     * Says something when the preview stays blank.
-     *
-     * A white rectangle is the least informative failure in the panel: the
-     * site could be down, unreachable, or blocked from being framed, and they
-     * look identical. The server already knows whether anything answers on the
-     * port, so the two cases can at least be told apart in words.
+     * The preview is served through the panel, so the old failure modes are
+     * gone: no framing header, no mixed content, no closed port. What is left
+     * is the site itself not answering, which the proxy reports as a page of
+     * its own rather than a blank frame - so there is nothing to detect here
+     * beyond a load that never happens at all.
      */
     var loaded = false;
     iframe.addEventListener('load', function () { loaded = true; });
 
-    /*
-     * A page served over https cannot embed an http frame. The browser blocks
-     * it outright, with no error event and nothing in the console - the frame
-     * simply stays blank. This is the state the panel is in as soon as it sits
-     * behind the reverse proxy, which is why the preview worked by IP and not
-     * by domain.
-     *
-     * When the site has a domain of its own, that is the way out: same scheme,
-     * no mixed content. Without one there is nothing to switch to, so say so
-     * rather than showing a white rectangle.
-     */
-    if (location.protocol === 'https:' && /^http:/.test(iframe.src)) {
-      if (PREVIEW_DOMAIN_URL && /^https:/.test(PREVIEW_DOMAIN_URL)) {
-        iframe.src = PREVIEW_DOMAIN_URL;
-        var label = document.getElementById('preview-url-label');
-        if (label) label.textContent = PREVIEW_DOMAIN_URL;
-      } else {
-        var mixed = document.getElementById('preview-note-live');
-        mixed.style.display = '';
-        mixed.innerHTML = PREVIEW_DOMAIN_URL
-          ? 'You are viewing the panel over HTTPS, and this site is only reachable over ' +
-            'plain HTTP, so the browser will not embed it here. Open the panel by IP ' +
-            'address to use the preview, or give this site a certificate.'
-          : 'You are viewing the panel over HTTPS, and the preview address is plain ' +
-            'HTTP, so the browser refuses to embed it. Give this site a domain, or ' +
-            'open the panel by IP address, and the preview works again.';
-        loaded = true; // the five second check would only repeat this
-      }
-    }
-
-    setTimeout(async function () {
+    setTimeout(function () {
       if (loaded) return;
       var note = document.getElementById('preview-note-live');
       note.style.display = '';
-
-      if (!REACHABLE) {
-        note.innerHTML =
-          'Nothing is answering on port <code><%= site.port %></code> yet, so there is ' +
-          'nothing to show. Check the <a href="/sites/<%= site.id %>/logs">Logs</a> tab.';
-        return;
-      }
-
-      // The server reached the site over loopback. That says nothing about
-      // whether *this browser* can reach it: the panel and the site are on
-      // different ports, and a firewall that allows the panel's port can
-      // easily block the site's. Asking the browser directly settles it.
-      note.textContent = 'Checking whether your browser can reach the site...';
-      var canReach = true;
-      try {
-        // credentials: 'omit' matters. This is the one request in the panel
-        // that goes to another origin, and the panel's session cookie has no
-        // business being sent there.
-        await fetch(PREVIEW_URL, { mode: 'no-cors', cache: 'no-store', credentials: 'omit' });
-      } catch (err) {
-        canReach = false;
-      }
-
-      if (canReach) {
-        note.innerHTML =
-          'Your browser can reach the site, but it did not render inside this page. ' +
-          'Use <strong>New tab</strong> - something is stopping the panel from ' +
-          'embedding it, most often a browser extension or a privacy setting that ' +
-          'blocks cross-origin frames.';
-      } else {
-        note.innerHTML =
-          'Your browser cannot reach <code><%= previewUrl %></code>, even though the ' +
-          'server can. The site ports are not open to this machine: the panel and ' +
-          'the sites are on different ports, so a firewall rule that allows one ' +
-          'can easily block the others. ' +
-          'Visitors reaching the site through your reverse proxy are unaffected.';
-      }
-    }, 5000);
+      note.innerHTML =
+        'The preview is taking longer than usual. If the site is slow to start, ' +
+        'press <strong>Refresh</strong> in a moment; otherwise check the ' +
+        '<a href="/sites/<%= site.id %>/logs">Logs</a> tab.';
+    }, 15000);
 
     document.getElementById('preview-reload').addEventListener('click', function () {
       // Re-assigning src re-requests the page; a cache-buster avoids a stale render.
@@ -838,18 +781,21 @@ add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" a
   <% if (provisioning) { %>showProgress();<% } %>
 
   /* ------------------------------------------------------- live stats */
+  // The state pill and the action buttons live in the tab bar and are handled
+  // in app.js, so this only fetches what is specific to the overview page.
   setInterval(async function () {
     try {
       var data = await fetch('/api/status?site=' + SITE_ID + '&stats=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       var mine = (data.sites || [])[0];
       if (!mine) return;
-      var pill = document.getElementById('state-pill');
-      pill.className = 'pill pill-' + mine.state;
-      pill.innerHTML = '<span class="dot"></span>' + mine.state;
 
       // The warning is only true while the container really is absent.
       var missing = document.getElementById('missing-alert');
       if (missing && mine.state !== 'missing') missing.remove();
+
+      var uptime = document.getElementById('stat-uptime');
+      if (uptime) uptime.textContent = mine.uptimeMs ? HP.duration(mine.uptimeMs) : '-';
+
       if (mine.stats) {
         document.getElementById('stat-cpu').textContent = mine.stats.cpuPercent + ' %';
         document.getElementById('stat-mem').textContent = Math.round(mine.stats.memoryBytes / 1048576) + ' MB';

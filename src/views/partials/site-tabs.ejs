@@ -24,13 +24,32 @@
     </a>
   </div>
 
+  <%
+    /* The buttons are hidden or shown by state in app.js once the status poll
+       answers. Rendering them all and letting the client decide keeps this
+       partial usable on the tabs that do not compute `live` server-side. */
+  %>
   <div class="tabbar-actions" data-site-actions="<%= site.id %>">
-    <button class="btn btn-sm" data-action="start"><%- icon('play') %><span>Start</span></button>
-    <button class="btn btn-sm" data-action="stop"><%- icon('stop') %><span>Stop</span></button>
-    <button class="btn btn-sm" data-action="restart"><%- icon('restart') %><span>Restart</span></button>
+    <span class="site-state" data-site-state>
+      <span class="pill" data-state-pill><span class="dot"></span><span data-state-text>checking</span></span>
+      <span class="muted small" data-state-detail></span>
+    </span>
+
+    <button class="btn btn-sm btn-primary" data-action="start" data-when="stopped"
+            title="Start this site">
+      <%- icon('play') %><span>Start</span>
+    </button>
+    <button class="btn btn-sm" data-action="restart" data-when="running"
+            title="Stop and start the container again">
+      <%- icon('restart') %><span>Restart</span>
+    </button>
+    <button class="btn btn-sm" data-action="stop" data-when="running"
+            title="Stop this site. Visitors will see an error until it is started again.">
+      <%- icon('stop') %><span>Stop</span>
+    </button>
     <button class="btn btn-sm" data-action="rebuild"
             title="Recreate the container from the current settings. Your files are kept.">
-      <%- icon('apply') %><span>Apply Changes</span>
+      <%- icon('apply') %><span>Rebuild</span>
     </button>
     <% if (site.type === 'node') { %>
       <button class="btn btn-sm" data-action="install"

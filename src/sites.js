@@ -743,7 +743,8 @@ async function deleteSite(siteId, { deleteFiles = true } = {}) {
  * Live status for the dashboard
  * ------------------------------------------------------------------ */
 async function statusFor(site) {
-  const state = await docker.containerState(tpl.containerName(site));
+  const health = await docker.containerHealth(tpl.containerName(site));
+  const state = health.state;
   let dbState = null;
   if (site.type === 'wordpress') {
     dbState = await docker.containerState(tpl.dbContainerName(site));
@@ -755,11 +756,18 @@ async function statusFor(site) {
   // "running but not answering" is the other state worth naming. A container
   // can be perfectly healthy while the app inside it is unreachable, and the
   // preview then shows a blank page with nothing to explain it.
-  const probe = state === 'running' ? await probeSite(site.port) : {};
+  const running = state === 'running' || state === 'healthy';
+  const probe = running ? await probeSite(site.port) : {};
   return {
     state,
     dbState,
-    reachable: state === 'running' ? probe.answers : null,
+    startedAt: health.startedAt,
+    finishedAt: health.finishedAt,
+    exitCode: health.exitCode,
+    restartCount: health.restartCount,
+    oomKilled: health.oomKilled,
+    uptimeMs: running && health.startedAt ? Date.now() - Date.parse(health.startedAt) : null,
+    reachable: running ? probe.answers : null,
     framingRefusedBy: probe.framingRefusedBy || null,
     needsDependencies: needsDependencies(site),
   };

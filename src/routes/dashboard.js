@@ -82,6 +82,10 @@ router.get('/api/status', async (req, res, next) => {
           state: live.state,
           dbState: live.dbState,
           busy: sites.isBusy(site.id),
+          uptimeMs: live.uptimeMs,
+          restartCount: live.restartCount,
+          exitCode: live.exitCode,
+          reachable: live.reachable,
           stats,
         };
       })

@@ -1,0 +1,117 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap">
+
+  <div class="page-head">
+    <div>
+      <h1>Security</h1>
+      <p class="sub">Sign-in attempts and account changes worth a second look.</p>
+    </div>
+    <div class="page-actions">
+      <% if (unread) { %>
+        <form method="post" action="/security/acknowledge">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="id" value="all">
+          <button class="btn btn-sm" type="submit"><%- icon('check') %><span>Clear All</span></button>
+        </form>
+      <% } %>
+      <a class="btn btn-sm" href="/security<%= showAll ? '' : '?all=1' %>">
+        <%- icon(showAll ? 'eyeOff' : 'eye') %><span><%= showAll ? 'New Only' : 'Show Cleared' %></span>
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-3" style="margin-bottom:1.4rem">
+    <div class="stat">
+      <div class="label">Open Alerts</div>
+      <div class="value"><%= unread %></div>
+    </div>
+    <div class="stat">
+      <div class="label">Two-Factor Policy</div>
+      <div class="value" style="font-size:1.05rem">
+        <%= policy.twoFactor === 'all' ? 'Everyone' : (policy.twoFactor === 'admins' ? 'Administrators' : 'Optional') %>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="label">Minimum Password</div>
+      <div class="value"><%= policy.minPassword %><small> chars</small></div>
+    </div>
+  </div>
+
+  <% if (policy.twoFactor === 'off') { %>
+    <div class="alert alert-warn">
+      <strong>Two-factor authentication is optional.</strong>
+      On a panel reachable from the internet, a password is the only thing between a
+      guessed login and every site on this machine.
+      <a href="/settings">Require it in Settings</a>.
+    </div>
+  <% } %>
+
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:1.4rem">
+    <div class="card-head" style="padding:.85rem 1rem;border-bottom:1px solid var(--border-soft)">
+      <h2 style="margin:0;font-size:.95rem"><%= showAll ? 'All Alerts' : 'New Alerts' %></h2>
+    </div>
+
+    <% if (!rows.length) { %>
+      <div class="empty" style="padding:2.2rem 1rem">
+        <div class="empty-icon"><%- icon('shield', 'ico-lg') %></div>
+        <h3>Nothing To Report</h3>
+        <p>No repeated sign-in failures, no sign-ins from new addresses, and no
+          changes to how accounts are protected.</p>
+      </div>
+    <% } %>
+
+    <% rows.forEach(function (r) { %>
+      <div class="alert-row sev-<%= r.severity %><%= r.acknowledged ? ' is-read' : '' %>">
+        <span class="alert-icon"><%- icon(r.severity === 'info' ? 'shield' : 'alert') %></span>
+        <div class="alert-body">
+          <div class="alert-label">
+            <%= r.label %>
+            <% if (r.subject) { %><span class="muted">&middot; <%= r.subject %></span><% } %>
+          </div>
+          <% if (r.detail) { %><div class="alert-detail"><%= r.detail %></div><% } %>
+          <div class="alert-when">
+            <span data-since="<%= r.created_at %>"><%= new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 16) %> UTC</span>
+            <% if (r.ip) { %>&middot; <span class="mono"><%= r.ip %></span><% } %>
+          </div>
+        </div>
+        <% if (!r.acknowledged) { %>
+          <form method="post" action="/security/acknowledge">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="id" value="<%= r.id %>">
+            <button class="icon-btn" type="submit" title="Clear this alert" aria-label="Clear this alert">
+              <%- icon('check') %>
+            </button>
+          </form>
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="card-head" style="padding:.85rem 1rem;border-bottom:1px solid var(--border-soft)">
+      <h2 style="margin:0;font-size:.95rem">Failed Sign-Ins, Last 24 Hours</h2>
+      <p class="sub" style="margin:.2rem 0 0">Grouped by address. A handful is ordinary; a column of them is not.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Address</th><th style="width:120px">Attempts</th><th style="width:200px">Most Recent (UTC)</th></tr>
+        </thead>
+        <tbody>
+          <% if (!failures.length) { %>
+            <tr><td colspan="3" class="muted small" style="padding:1.2rem">Nothing failed to sign in today.</td></tr>
+          <% } %>
+          <% failures.forEach(function (f) { %>
+            <tr>
+              <td class="mono small"><%= f.ip || 'unknown' %></td>
+              <td><%= f.attempts %></td>
+              <td class="muted small"><%= new Date(f.last_at).toISOString().replace('T', ' ').slice(0, 19) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<%- include('partials/foot') %>

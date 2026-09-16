@@ -247,6 +247,7 @@ h3 { font-size: .95rem; margin: 0 0 .6rem; }
 
 .grid { display: grid; gap: 1.1rem; }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 
 /* ----------------------------------------------------------------- stats */
@@ -364,19 +365,77 @@ textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-si
   transition: border-color .12s ease;
 }
 .site-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-.site-card .row1 { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
-.site-card .name { font-weight: 600; font-size: 1rem; }
-.site-card .name a { color: var(--text); }
-.site-card .meta { color: var(--muted); font-size: .82rem; display: flex; gap: .55rem; flex-wrap: wrap; align-items: center; }
+.site-card[hidden] { display: none; }
+
+/*
+ * Three lines of information, in falling order of importance: what it is
+ * called and whether it is up, where it answers, and the details you only want
+ * when you go looking. An earlier version gave every one of those equal weight
+ * in the same grey, so a card had to be read rather than glanced at.
+ */
+.site-card-head { display: flex; align-items: center; gap: .5rem; }
+.site-card-name {
+  font-weight: 600; font-size: 1.02rem; color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.site-card-name:hover { color: var(--accent); }
+
+.site-card-domain { display: flex; align-items: center; gap: .45rem; font-size: .86rem; min-height: 1.2em; }
+.site-card-domain a {
+  display: inline-flex; align-items: center; gap: .3rem;
+  color: var(--accent); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.site-card-domain a .ico { opacity: .55; flex: none; }
+.site-card-domain a:hover .ico { opacity: 1; }
+.site-card-domain .muted { font-size: .84rem; }
+
+/* Separated by dots rather than by labels: "Node.js - Port 8081" reads at a
+   glance, where "Type: Node.js  Port: 8081" is a form to fill in. */
+.site-card-facts { color: var(--muted); font-size: .78rem; display: flex; flex-wrap: wrap; align-items: center; }
+.site-card-facts span + span::before { content: "·"; margin: 0 .4rem; opacity: .6; }
+
+.site-card-links {
+  display: flex; gap: 1rem; flex-wrap: wrap;
+  margin-top: auto; padding-top: .6rem;
+  border-top: 1px solid var(--border-soft);
+}
+.site-card-links a { display: inline-flex; align-items: center; gap: .32rem; font-size: .82rem; color: var(--muted); }
+.site-card-links a:hover { color: var(--accent); }
+.site-card-links .ico { opacity: .7; }
+
 .type-badge {
-  display: inline-grid; place-items: center;
+  display: inline-grid; place-items: center; flex: none;
   width: 22px; height: 22px; border-radius: 6px;
   background: var(--accent-soft); color: var(--accent);
   font-size: .7rem; font-weight: 700;
 }
-.site-card .links { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: auto; padding-top: .55rem; border-top: 1px solid var(--border-soft); }
-.site-card .links a { font-size: .82rem; color: var(--muted); }
-.site-card .links a:hover { color: var(--accent); }
+
+/* ---------------------------------------------------------- site search */
+.site-search {
+  display: flex; align-items: center; gap: .55rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 .7rem;
+  margin-bottom: 1rem;
+  transition: border-color .12s ease;
+}
+.site-search:focus-within { border-color: var(--accent); }
+.site-search .ico { color: var(--muted); flex: none; }
+.site-search input {
+  flex: 1; border: 0; background: none; padding: .58rem 0;
+  color: var(--text); font-size: .9rem; margin: 0;
+}
+.site-search input:focus { outline: none; box-shadow: none; }
+.site-search input::-webkit-search-cancel-button { filter: grayscale(1); opacity: .6; }
+.site-search kbd {
+  flex: none; color: var(--muted); font-size: .72rem;
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: .05rem .32rem; background: var(--muted-2);
+}
+.site-search:focus-within kbd { visibility: hidden; }
 
 /* ------------------------------------------------------------ site tabs */
 .tabbar {
@@ -572,6 +631,39 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   padding: 0;
 }
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* ------------------------------------------------------ security alerts */
+.alert-bell { position: relative; }
+.alert-bell.has-alerts { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+.alert-bell.has-alerts:hover { color: var(--red); border-color: var(--red); }
+.alert-count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  border-radius: 99px;
+  background: var(--red); color: #fff;
+  font-size: .62rem; font-weight: 700; line-height: 16px;
+  text-align: center;
+}
+
+.alert-row {
+  display: flex; align-items: flex-start; gap: .8rem;
+  padding: .85rem 1rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+.alert-row:last-child { border-bottom: 0; }
+.alert-row.is-read { opacity: .55; }
+.alert-row .alert-icon {
+  display: grid; place-items: center; flex: none;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--muted-2); color: var(--muted);
+}
+.alert-row.sev-critical .alert-icon { background: var(--red-soft); color: var(--red); }
+.alert-row.sev-warning .alert-icon { background: var(--amber-soft); color: var(--amber); }
+.alert-row.sev-info .alert-icon { background: var(--accent-soft); color: var(--accent); }
+.alert-body { flex: 1; min-width: 0; }
+.alert-body .alert-label { font-weight: 600; font-size: .9rem; }
+.alert-body .alert-detail { color: var(--muted); font-size: .82rem; margin-top: .15rem; }
+.alert-body .alert-when { color: var(--muted); font-size: .75rem; margin-top: .25rem; }
 
 /* ------------------------------------------------------- empty states --- */
 .empty-icon {
@@ -1014,3 +1106,112 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   border-top: 1px solid var(--border);
 }
 .settings-save .muted { margin-right: auto; align-self: center; }
+
+/* ------------------------------------------------ site state in tab bar -- */
+.site-state {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-right: auto;
+  padding-right: .6rem;
+}
+.site-state .muted { white-space: nowrap; }
+.tabbar-actions { flex: 1; }
+@media (max-width: 720px) {
+  .site-state .muted { display: none; }
+}
+
+/* ---------------------------------------------------------- motion ----- */
+/*
+ * Small, fast and purposeful. Each of these shows a relationship the eye would
+ * otherwise have to infer - where a panel came from, that a value changed, that
+ * something is still working - and all of them are off for anyone who has asked
+ * their system for reduced motion.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    animation: hp-rise .24s cubic-bezier(.22, .68, .36, 1) both;
+  }
+  /* Staggered, so a page of cards settles rather than snapping into place. */
+  .wrap .card:nth-of-type(2) { animation-delay: .04s; }
+  .wrap .card:nth-of-type(3) { animation-delay: .08s; }
+  .wrap .card:nth-of-type(4) { animation-delay: .12s; }
+
+  .menu-panel { animation: hp-drop .14s ease-out both; transform-origin: top right; }
+  .dlg { animation: hp-pop .18s cubic-bezier(.2, .9, .3, 1.1) both; }
+  .modal { animation: hp-pop .18s cubic-bezier(.2, .9, .3, 1.1) both; }
+  .toast { animation: hp-slide-in .22s ease-out both; }
+
+  /* A running site's status dot breathes, so "running" is visible at a glance
+     from across the room rather than needing to be read. */
+  .pill-running .dot,
+  .pill-healthy .dot { animation: hp-pulse 2.4s ease-in-out infinite; }
+
+  /* The progress bar's stripes move while a build is going, which is the
+     difference between "working" and "frozen". */
+  .upload-fill::after,
+  .progress-fill::after { animation: hp-stripes 1s linear infinite; }
+
+  .btn, .topnav a, .tabs a, .menu-item, .settings-nav button {
+    transition: background .14s ease, border-color .14s ease, color .14s ease,
+                transform .1s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+
+  .fm-table tbody tr { transition: background .1s ease; }
+  .preview-frame iframe { transition: opacity .2s ease; }
+}
+
+@keyframes hp-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hp-drop {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hp-pop {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hp-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hp-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50%      { opacity: .65; box-shadow: 0 0 0 3px transparent; }
+}
+@keyframes hp-stripes {
+  from { background-position: 0 0; }
+  to   { background-position: 28px 0; }
+}
+
+/* The stripes themselves. Drawn as an overlay so the fill colour is untouched. */
+.upload-fill, .progress-fill { position: relative; overflow: hidden; }
+.upload-fill::after, .progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    115deg,
+    rgba(255, 255, 255, .18) 25%, transparent 25%,
+    transparent 50%, rgba(255, 255, 255, .18) 50%,
+    rgba(255, 255, 255, .18) 75%, transparent 75%
+  );
+  background-size: 28px 28px;
+}
+
+/* A spinner for buttons that are mid-action. */
+.btn[data-busy="1"] { position: relative; color: transparent; pointer-events: none; }
+.btn[data-busy="1"]::after {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--text);
+  animation: hp-spin .6s linear infinite;
+}
+@keyframes hp-spin { to { transform: rotate(360deg); } }

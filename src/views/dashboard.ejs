@@ -52,49 +52,116 @@
       <a class="btn btn-primary mt" href="/sites/new">Create Your First Site</a>
     </div>
   <% } else { %>
-    <div class="site-grid">
+    <%
+      /* Search is worth showing once there are enough sites to lose one in.
+         Below that it is a box that never has anything to do. */
+      const showSearch = sites.length >= 5;
+    %>
+    <% if (showSearch) { %>
+      <div class="site-search">
+        <%- icon('search') %>
+        <input type="search" id="site-search" placeholder="Search sites by name, domain, type or owner"
+               autocomplete="off" spellcheck="false" aria-label="Search sites">
+        <kbd>/</kbd>
+      </div>
+    <% } %>
+
+    <div class="site-grid" id="site-grid">
       <% sites.forEach(function (s) { %>
-        <div class="site-card" data-site-id="<%= s.id %>">
-          <div class="row1">
-            <div class="name">
-              <span class="type-badge" title="<%= siteTypes[s.type] ? siteTypes[s.type].label : s.type %>"><%= siteTypes[s.type] ? siteTypes[s.type].icon : '?' %></span>
-              <a href="/sites/<%= s.id %>"><%= s.name %></a>
-            </div>
+        <%
+          const typeLabel = siteTypes[s.type] ? siteTypes[s.type].label : s.type;
+          const primary = s.domains.length ? s.domains[0] : null;
+          /* One flat haystack per card, so the filter never has to walk the DOM
+             hunting for the pieces it wants to match against. */
+          const haystack = [s.name, typeLabel, s.owner_name, s.port].concat(s.domains).join(' ').toLowerCase();
+        %>
+        <article class="site-card" data-site-id="<%= s.id %>" data-search="<%= haystack %>">
+          <div class="site-card-head">
+            <span class="type-badge" title="<%= typeLabel %>"><%= siteTypes[s.type] ? siteTypes[s.type].icon : '?' %></span>
+            <a class="site-card-name" href="/sites/<%= s.id %>"><%= s.name %></a>
             <span class="pill pill-<%= s.live.state %>" data-state><span class="dot"></span><%= s.live.state %></span>
           </div>
 
-          <div class="meta">
-            <% if (s.domains.length) { %>
-              <% s.domains.slice(0, 2).forEach(function (d) { %>
-                <a href="http<%= s.ssl ? 's' : '' %>://<%= d %>" target="_blank" rel="noopener"><%= d %></a>
-              <% }) %>
-              <% if (s.domains.length > 2) { %><span>+<%= s.domains.length - 2 %></span><% } %>
+          <div class="site-card-domain">
+            <% if (primary) { %>
+              <a href="http<%= s.ssl ? 's' : '' %>://<%= primary %>" target="_blank" rel="noopener">
+                <%= primary %><%- icon('external', 'ico-sm') %>
+              </a>
               <% if (s.ssl) { %><span class="pill pill-ssl">SSL</span><% } %>
+              <% if (s.domains.length > 1) { %>
+                <span class="muted">+<%= s.domains.length - 1 %> more</span>
+              <% } %>
             <% } else { %>
-              <span class="muted">no domain set</span>
+              <span class="muted">No domain yet</span>
             <% } %>
           </div>
 
-          <div class="meta">
-            <span>port <%= s.port %></span>
-            <% if (user.role === 'admin') { %><span>&middot; <%= s.owner_name %></span><% } %>
-            <% if (s.runtime_version) { %><span>&middot; v<%= s.runtime_version %></span><% } %>
+          <div class="site-card-facts">
+            <span><%= typeLabel %></span>
+            <span class="adv">Port <%= s.port %></span>
+            <% if (user.role === 'admin') { %><span class="adv"><%= s.owner_name %></span><% } %>
           </div>
 
-          <div class="links">
-            <a href="/sites/<%= s.id %>">Overview</a>
-            <a href="/sites/<%= s.id %>/files">Files</a>
-            <a href="/sites/<%= s.id %>/logs">Logs</a>
-            <a href="/sites/<%= s.id %>/terminal">Shell</a>
-            <a href="/sites/<%= s.id %>/cron">Cron</a>
+          <div class="site-card-links">
+            <a href="/sites/<%= s.id %>"><%- icon('sites', 'ico-sm') %>Overview</a>
+            <a href="/sites/<%= s.id %>/files"><%- icon('folder', 'ico-sm') %>Files</a>
+            <a href="/sites/<%= s.id %>/logs"><%- icon('logs', 'ico-sm') %>Logs</a>
           </div>
-        </div>
+        </article>
       <% }) %>
+    </div>
+
+    <div class="card empty" id="site-search-empty" hidden>
+      <div class="empty-icon"><%- icon('search', 'ico-lg') %></div>
+      <h3>No Matching Sites</h3>
+      <p>Nothing here matches <strong id="site-search-term"></strong>.</p>
     </div>
   <% } %>
 </div>
 
 <script>
+  /* Search filters what is already on the page.
+     Every site is rendered here anyway, so matching in the browser is instant
+     and keeps working while the panel is busy - a round trip per keystroke
+     would be slower and could fail at exactly the moment someone is looking
+     for the site that is misbehaving. */
+  (function () {
+    var box = document.getElementById('site-search');
+    if (!box) return;
+    var grid = document.getElementById('site-grid');
+    var empty = document.getElementById('site-search-empty');
+    var term = document.getElementById('site-search-term');
+    var cards = Array.prototype.slice.call(grid.querySelectorAll('.site-card'));
+
+    function apply() {
+      var q = box.value.trim().toLowerCase();
+      var shown = 0;
+      cards.forEach(function (card) {
+        var hit = !q || card.getAttribute('data-search').indexOf(q) !== -1;
+        card.hidden = !hit;
+        if (hit) shown += 1;
+      });
+      empty.hidden = shown > 0;
+      if (!shown) term.textContent = box.value.trim();
+    }
+
+    box.addEventListener('input', apply);
+    box.addEventListener('keydown', function (e) {
+      // Escape clears rather than closing the field, so the full list comes
+      // back without reaching for the mouse.
+      if (e.key === 'Escape' && box.value) { box.value = ''; apply(); e.stopPropagation(); }
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      var tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      box.focus();
+      box.select();
+    });
+  })();
+
   // Keep the status pills fresh without a full page reload.
   setInterval(async function () {
     try {

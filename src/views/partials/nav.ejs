@@ -35,9 +35,17 @@
 
   <div class="topbar-right">
     <% if (u) { %>
-      <a class="btn btn-primary btn-sm" href="/sites/new" title="Create a new site">
-        <%- icon('plus') %><span class="btn-label">New Site</span>
-      </a>
+      <% if (u.role === 'admin') { %>
+        <a class="icon-btn alert-bell<%= (typeof alertCount !== 'undefined' && alertCount) ? ' has-alerts' : '' %>"
+           href="/security"
+           title="<%= (typeof alertCount !== 'undefined' && alertCount) ? alertCount + ' security alert' + (alertCount === 1 ? '' : 's') : 'Security alerts' %>"
+           aria-label="Security alerts">
+          <%- icon('shield') %>
+          <% if (typeof alertCount !== 'undefined' && alertCount) { %>
+            <span class="alert-count"><%= alertCount > 9 ? '9+' : alertCount %></span>
+          <% } %>
+        </a>
+      <% } %>
 
       <div class="seg seg-mode adv" title="Simple hides Docker internals. Advanced shows everything.">
         <button type="button" data-mode-set="simple">Simple</button>

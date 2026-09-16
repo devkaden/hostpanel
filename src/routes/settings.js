@@ -159,6 +159,12 @@ router.post(
     // Security.
     const policy = ['off', 'admins', 'all'].includes(body.require_2fa) ? body.require_2fa : 'off';
     setSetting('require_2fa', policy);
+    const maxUpload = parseInt(body.max_upload_mb, 10);
+    setSetting(
+      'max_upload_mb',
+      Number.isInteger(maxUpload) && maxUpload >= 1 && maxUpload <= 20480 ? String(maxUpload) : ''
+    );
+
     const minLen = parseInt(body.min_password_length, 10);
     setSetting(
       'min_password_length',

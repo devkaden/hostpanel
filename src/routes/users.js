@@ -4,6 +4,7 @@ const express = require('express');
 
 const { db, audit } = require('../db');
 const auth = require('../auth');
+const alerts = require('../alerts');
 const { destroySessionsForUser } = require('../session-store');
 const { wrap } = require('../middleware');
 
@@ -67,6 +68,15 @@ router.post(
     ).run(username, email, auth.hashPassword(password), role, quota);
 
     audit(req, 'user.create', username, { role, quota });
+    // A new administrator is the single most valuable thing an attacker who
+    // reached this page could create, so it is worth saying out loud.
+    if (role === 'admin') {
+      alerts.raise('admin_created', {
+        subject: username,
+        ip: req.ip,
+        detail: `Created by ${req.user.username} with full administrator access.`,
+      });
+    }
     return render(null, { username, password });
   })
 );
@@ -104,6 +114,14 @@ router.post(
     // Kick a disabled user out immediately, without touching anyone else's session.
     if (!active) destroySessionsForUser(id);
     audit(req, 'user.update', user.username, { role, active, quota });
+    // Promotion reaches the same place as creating an administrator outright.
+    if (role === 'admin' && user.role !== 'admin') {
+      alerts.raise('admin_created', {
+        subject: user.username,
+        ip: req.ip,
+        detail: `Promoted to administrator by ${req.user.username}.`,
+      });
+    }
     return res.json({ ok: true });
   })
 );
@@ -134,6 +152,11 @@ router.post(
     destroySessionsForUser(id);
     auth.bumpSessionEpoch(id);
     audit(req, 'user.reset_password', user.username);
+    alerts.raise('password_reset', {
+      subject: user.username,
+      ip: req.ip,
+      detail: `Reset by ${req.user.username}. Every session for this account was ended.`,
+    });
     return res.json({ ok: true, password, generated });
   })
 );
@@ -164,6 +187,11 @@ router.post(
     destroySessionsForUser(id);
     auth.bumpSessionEpoch(id);
     audit(req, 'user.reset_2fa', user.username);
+    alerts.raise('twofactor_disabled', {
+      subject: user.username,
+      ip: req.ip,
+      detail: `Cleared by ${req.user.username}. The account is protected by a password alone until it is set up again.`,
+    });
     return res.json({ ok: true });
   })
 );

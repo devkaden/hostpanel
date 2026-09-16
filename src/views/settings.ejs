@@ -101,6 +101,17 @@
           </div>
 
           <div class="field">
+            <label for="max_upload_mb">
+              Maximum Upload Size
+              <span class="help" data-help="The largest single file the file manager will accept, in megabytes. Leave blank to use the value from .env. Applies immediately."></span>
+            </label>
+            <input id="max_upload_mb" name="max_upload_mb" type="number" min="1" max="20480"
+                   value="<%= settings.max_upload_mb || '' %>"
+                   placeholder="<%= Math.round(config.maxUploadBytes / 1024 / 1024) %> (from .env)">
+            <div class="hint">Megabytes. Blank uses the value in <code>.env</code>.</div>
+          </div>
+
+          <div class="field">
             <label for="min_password_length">Minimum Password Length</label>
             <input id="min_password_length" name="min_password_length" type="number" min="8" max="128"
                    value="<%= settings.min_password_length || '10' %>">

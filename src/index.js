@@ -11,6 +11,7 @@ const config = require('./config');
 const { db, getSetting, setSetting, getNumericSetting, allSettings } = require('./db');
 const SqliteStore = require('./session-store');
 const auth = require('./auth');
+const alerts = require('./alerts');
 const docker = require('./docker');
 const npmplus = require('./npmplus');
 const cron = require('./cron');
@@ -75,6 +76,7 @@ app.locals.uiModeSetting = 'simple';
 app.locals.twoFactorOn = false;
 app.locals.hostShell = false;
 app.locals.flash = null;
+app.locals.alertCount = 0;
 app.locals.siteTypes = config.siteTypes;
 
 // xterm.js is served from node_modules so the panel works on an offline LAN.
@@ -237,6 +239,22 @@ function jsonForScript(value) {
 app.use(require('./routes/auth'));
 app.use(auth.requireAuth);
 
+/*
+ * Locals that need to know who is signed in.
+ *
+ * They cannot go in the block above: that one runs before requireAuth, so
+ * req.user does not exist yet there and anything read from it is silently
+ * false on every page.
+ */
+app.use((req, res, next) => {
+  res.locals.twoFactorOn = Boolean(req.user && req.user.totp_enabled);
+  // Only administrators can open the security page, so only they are shown a
+  // count of what is waiting on it.
+  res.locals.alertCount =
+    req.user && req.user.role === 'admin' && !auth.wantsJson(req) ? alerts.unreadCount() : 0;
+  next();
+});
+
 // A brand new install drops the first administrator straight into the wizard.
 app.use((req, res, next) => {
   if (
@@ -259,6 +277,7 @@ app.use(require('./routes/files'));
 app.use(require('./routes/cron'));
 app.use(require('./routes/logs'));
 app.use(require('./routes/users'));
+app.use(require('./routes/security'));
 app.use(require('./routes/settings'));
 
 app.use((req, res) => {
@@ -313,6 +332,9 @@ async function boot() {
       console.log('[boot] existing install detected - skipping the first-run wizard');
     }
   }
+
+  // Alerts already dealt with are history, not a to-do list.
+  alerts.prune();
 
   if (!getSetting('host_ip')) {
     const detected = detectHostIp();

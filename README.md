@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-282-3fbf7f" alt="282 tests">
+  <img src="https://img.shields.io/badge/tests-403-3fbf7f" alt="403 tests">
 </p>
 
 ---
@@ -34,6 +34,8 @@ proxy the domain and issue the Let's Encrypt certificate — in one step.
   sites, with per-user site quotas
 - **Two-factor authentication** — TOTP, optional or required by role, with
   single-use recovery codes
+- **Security alerts** — repeated failed sign-ins, lockouts, sign-ins from a new
+  address and account changes, raised once per pattern rather than once per event
 - **Node.js that just works** — dependencies install themselves on first start,
   and extra programs like `ffmpeg` or `yt-dlp` are a field in the site settings
 - **Built to hand to someone else** — a first-run setup guide, a Simple/Advanced
@@ -172,6 +174,7 @@ standard account.
 | Files | Path traversal, zip-slip and symlink escapes rejected; every path resolved against the site root |
 | Headers | CSP, `nosniff`, `frame-ancestors 'none'`, no referrer |
 | Secrets | Database `0600`, data directory `0750`, `.env` `0600` |
+| Alerting | Repeated failures, sign-ins from new addresses and account changes surface on a Security page |
 
 The two-factor flow is worth describing because the failure modes are subtle:
 the password step never creates a signed-in session, so there is no
@@ -184,6 +187,14 @@ the RFC 4226 and RFC 6238 test vectors.
 **Settings → Security** lists how the install actually stands — secure cookies,
 session secret, `TRUST_PROXY` correctness, host shell, and which administrators
 have not set up two-factor.
+
+**Security** (the shield in the top bar, administrators only) shows what has
+been tried against the panel: a burst of failed sign-ins from one address, a
+lockout, a sign-in from an address an account has not used before, a recovery
+code being spent, two-factor being turned off, a new administrator. Alerts are
+raised once per pattern rather than once per attempt — an attack that produced
+fifty notifications would only teach you to ignore them — and the page also
+groups the last day's failures by address.
 
 ### Exposing the panel to the internet
 
@@ -346,6 +357,9 @@ npm test        # everything below
 | `npm run test:npmplus` | The NPMplus client against a simulated API |
 | `npm run test:config` | Ports, container specs, managed config files |
 | `npm run test:uploads` | The browser-side upload path against fake file APIs |
+| `npm run test:preview` | URL rewriting and a real proxied request |
+| `npm run test:alerts` | Alert thresholds, de-duplication and the wiring |
+| `npm run test:ui` | Icon names, card markup and stylesheet agreement |
 | `npm run test:upload-live` | Real uploads and downloads against a running panel |
 
 Everything except `test:upload-live` runs with no dependencies installed and

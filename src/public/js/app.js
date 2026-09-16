@@ -427,16 +427,91 @@
    * meant navigating back to press the button. Living here, the same bar works
    * on every tab.
    */
+  /** "3d 4h", "12m" - short enough to sit in a status line. */
+  function duration(ms) {
+    if (!ms || ms < 0) return '';
+    var s = Math.floor(ms / 1000);
+    var d = Math.floor(s / 86400);
+    var h = Math.floor((s % 86400) / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + m + 'm';
+    if (m) return m + 'm';
+    return s + 's';
+  }
+
+  var RUNNING = ['running', 'healthy'];
+
+  /**
+   * Reflects the site's real state in the action bar.
+   *
+   * Showing Start, Stop and Restart all at once means three buttons of which
+   * two do nothing, and no indication of which. Only the ones that apply are
+   * shown, next to a status that says how long it has been that way - because
+   * "running" alone does not distinguish a site that has been up for a month
+   * from one that is crash-looping and happened to be alive when asked.
+   */
+  function applySiteState(bar, info) {
+    var pill = bar.querySelector('[data-state-pill]');
+    var text = bar.querySelector('[data-state-text]');
+    var detail = bar.querySelector('[data-state-detail]');
+    if (!pill || !text) return;
+
+    var state = info.state || 'unknown';
+    var running = RUNNING.indexOf(state) !== -1;
+    var busy = Boolean(info.busy);
+
+    pill.className = 'pill pill-' + state;
+    text.textContent = busy ? 'working' : state;
+
+    if (detail) {
+      var parts = [];
+      if (running && info.uptimeMs) parts.push('up ' + duration(info.uptimeMs));
+      if (running && info.reachable === false) parts.push('not answering');
+      if (!running && typeof info.exitCode === 'number' && info.exitCode !== 0) {
+        parts.push('exit code ' + info.exitCode);
+      }
+      if (info.restartCount > 2) parts.push('restarted ' + info.restartCount + ' times');
+      detail.textContent = parts.join(' \u00b7 ');
+    }
+
+    bar.querySelectorAll('[data-when]').forEach(function (btn) {
+      var wants = btn.getAttribute('data-when');
+      var show = wants === 'running' ? running : !running;
+      btn.style.display = show && !busy ? '' : 'none';
+    });
+    bar.querySelectorAll('[data-action]').forEach(function (btn) {
+      btn.disabled = busy;
+    });
+  }
+
   function initSiteActions() {
     var bar = document.querySelector('[data-site-actions]');
     if (!bar) return;
     var siteId = bar.getAttribute('data-site-actions');
+
+    async function refreshState() {
+      try {
+        var data = await api('/api/status?site=' + siteId, { method: 'GET' });
+        var info = (data.sites || []).filter(function (s) {
+          return String(s.id) === String(siteId);
+        })[0];
+        if (info) applySiteState(bar, info);
+      } catch (_) {
+        // A failed poll should not blank the controls; leave what is there.
+      }
+    }
+
+    refreshState();
+    var timer = setInterval(refreshState, 10000);
+    window.addEventListener('beforeunload', function () { clearInterval(timer); });
 
     bar.querySelectorAll('[data-action]').forEach(function (btn) {
       btn.addEventListener('click', async function () {
         var action = btn.getAttribute('data-action');
         var label = btn.textContent.trim();
         btn.disabled = true;
+        btn.setAttribute('data-busy', '1');
         try {
           var res = await api('/sites/' + siteId + '/action/' + action, { method: 'POST' });
           if (res.background) {
@@ -450,6 +525,7 @@
         } catch (err) {
           await alertDialog({ title: label + ' failed', message: err.message, tone: 'danger' });
           btn.disabled = false;
+          btn.removeAttribute('data-busy');
         }
       });
     });
@@ -488,7 +564,7 @@
   });
 
   window.HP = {
-    api, toast, openModal, closeModal, bytes, copy, escapeHtml, relTime, CSRF,
+    api, toast, openModal, closeModal, bytes, copy, escapeHtml, relTime, duration, CSRF,
     setMode, currentMode, setTheme, currentTheme,
     dialog, confirm: confirmDialog, alert: alertDialog, prompt: promptDialog,
   };

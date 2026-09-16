@@ -11,6 +11,7 @@ const tpl = require('../site-templates');
 const terminal = require('../terminal');
 const templates = require('../templates');
 const { loadSite, wrap } = require('../middleware');
+const preview = require('../preview');
 const { humanBytes } = require('../netutil');
 
 const router = express.Router();
@@ -234,6 +235,36 @@ router.get('/sites/:id/progress', loadSite, (req, res) => {
   heartbeat = setInterval(() => res.write(': ping\n\n'), 20000);
   req.on('close', stop);
 });
+
+/* ------------------------------------------------------------------ *
+ * Preview proxy
+ * ------------------------------------------------------------------ *
+ * The site's own pages, served back through the panel so the preview is
+ * same-origin. See src/preview.js for why this is worth the machinery.
+ *
+ * Mounted deliberately wide - every method and every path under the prefix -
+ * because a page is not just its HTML: its stylesheets, images, fonts and
+ * form posts all have to come through the same door or the render is wrong.
+ */
+router.all(
+  // Express 4 route syntax: a trailing * captures the rest of the path. The
+  // bare form is matched too, so /preview/3 works as well as /preview/3/.
+  ['/preview/:id', '/preview/:id/*'],
+  loadSite,
+  wrap(async (req, res) => {
+    if (!req.site.port) return res.status(409).send('This site has no port yet.');
+
+    const base = `/preview/${req.site.id}/`;
+    // Everything after the prefix, query string included, is the site's path.
+    const rest = req.originalUrl.slice(base.length - 1) || '/';
+
+    return preview.proxy(req, res, {
+      port: req.site.port,
+      base,
+      upstreamPath: rest.startsWith('/') ? rest : `/${rest}`,
+    });
+  })
+);
 
 /* ------------------------------------------------------------------ *
  * Lifecycle actions
