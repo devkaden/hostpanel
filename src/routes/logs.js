@@ -9,8 +9,15 @@ const docker = require('../docker');
 const sites = require('../sites');
 const tpl = require('../site-templates');
 const { loadSite, wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 /** Which log sources exist for a given site type. */
 function sourcesFor(site) {

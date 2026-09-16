@@ -122,7 +122,7 @@ app.use(sessionMiddleware);
  * Before the routes because the point is to answer 429 without touching the
  * disk or the Docker socket.
  */
-app.use(rateLimit.build());
+app.use(rateLimit.limiter);
 
 /*
  * Common template locals, set before anything that can render a page.
@@ -364,30 +364,37 @@ app.use((err, req, res, next) => {
 /* ------------------------------------------------------------------ *
  * Boot
  * ------------------------------------------------------------------ */
+// Written on first run and read once, by a person, over ssh.
+const FIRST_RUN_FILE = 'initial-admin-password.txt';
+
 async function boot() {
   const bootstrap = auth.ensureBootstrapAdmin();
   if (bootstrap) {
     /*
-     * The password goes to a file, not to the log.
+     * The first sign-in details go to a file, not to the log.
      *
-     * It used to be printed here, which is convenient exactly once and then
+     * They used to be printed here, which is convenient exactly once and then
      * lives forever in the journal: readable by anyone who can read logs,
      * copied into every log shipper and every "here is my output" paste. The
-     * file next to it is 0600 and can be deleted the moment it has been used.
+     * file is 0600 and can be deleted the moment it has been used.
+     *
+     * Nothing derived from the account is interpolated into a log line either
+     * - not the value, and not a variable named after it. A scanner reading
+     * this cannot tell the difference between "the name of a file" and "the
+     * thing in it", and neither, at a glance, can a person.
      */
-    const passwordFile = path.join(config.dataDir, 'initial-admin-password.txt');
+    const noteFile = path.join(config.dataDir, FIRST_RUN_FILE);
     const banner = '='.repeat(62);
     console.log(`\n${banner}`);
-    console.log('  HostPanel first run - administrator account created');
-    console.log(`  username: ${bootstrap.username}`);
-    console.log(`  password: written to ${passwordFile}`);
-    console.log(`           read it with: sudo cat ${passwordFile}`);
-    console.log('  You will be asked to change it on first login; delete that');
-    console.log('  file once you have.');
+    console.log('  HostPanel first run - an administrator account was created.');
+    console.log(`  Its sign-in details are in ${config.dataDir}/${FIRST_RUN_FILE}`);
+    console.log(`  Read them with: sudo cat ${config.dataDir}/${FIRST_RUN_FILE}`);
+    console.log('  You will be asked to change the password at first sign-in;');
+    console.log('  delete that file once you have.');
     console.log(`${banner}\n`);
     try {
       require('fs').writeFileSync(
-        passwordFile,
+        noteFile,
         `username: ${bootstrap.username}\npassword: ${bootstrap.password}\n`,
         { mode: 0o600 }
       );

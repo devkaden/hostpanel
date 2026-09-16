@@ -15,8 +15,15 @@ const docker = require('../docker');
 const npmplus = require('../npmplus');
 const { detectHostIp } = require('../netutil');
 const { wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 function isComplete() {
   return getSetting('setup_complete') === '1';

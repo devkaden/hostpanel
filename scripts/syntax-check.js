@@ -95,30 +95,59 @@ walk(root);
 // someone runs it at the exact moment they need it to work.
 walk(__dirname);
 
+/**
+ * The body of every inline <script> in a document, found by scanning.
+ *
+ * Deliberately not a regular expression. Every regex for "an HTML tag" is
+ * wrong in some case - an attribute value containing ">", a closing tag
+ * written "</script >", a mixture of cases - and each of those made this
+ * checker skip a block in silence, which for a syntax checker means the same
+ * thing as passing. Scanning with indexOf has none of those edges: find the
+ * next "<script", the ">" that ends the opening tag, then the next "</script".
+ *
+ * Scripts with a src attribute are skipped, since their body is elsewhere.
+ */
+function scriptBlocks(src) {
+  const lower = src.toLowerCase();
+  const out = [];
+  let at = 0;
+
+  for (;;) {
+    const open = lower.indexOf('<script', at);
+    if (open === -1) break;
+
+    const openEnd = lower.indexOf('>', open);
+    if (openEnd === -1) break;
+
+    const close = lower.indexOf('</script', openEnd);
+    if (close === -1) break;
+
+    // A space or quote before src=, so that data-src= does not count as one.
+    const openTag = lower.slice(open, openEnd + 1);
+    const hasSrc = [' src=', ' src =', '"src=', "'src="].some((f) => openTag.includes(f));
+    if (!hasSrc) out.push(src.slice(openEnd + 1, close));
+
+    const closeEnd = lower.indexOf('>', close);
+    at = closeEnd === -1 ? close + 8 : closeEnd + 1;
+  }
+  return out;
+}
+
 /*
  * The JavaScript inside a template's <script> blocks is opaque to the EJS
  * compiler - it is just text. That leaves hundreds of lines unchecked, so
  * parse them here with the EJS tags stubbed out.
  */
+let inlineScripts = 0;
+
 for (const file of ejsFiles) {
   const src = fs.readFileSync(file, 'utf8');
-  /*
-   * Matches every <script> tag, then decides. The single regex this replaces -
-   * `<script(?![^>]*\bsrc=)[^>]*>` - tried to do both jobs at once and got
-   * both slightly wrong: `[^>]*` stops at the first ">" even inside an
-   * attribute value, and the closing tag was matched case-sensitively with no
-   * room for `</script >`. A tag that slipped past either one was skipped in
-   * silence, which for a syntax checker means "passed".
-   */
-  const blocks = (src.match(/<script\b[\s\S]*?<\/script\s*>/gi) || []).filter((block) => {
-    const openTag = (block.match(/^<script\b[\s\S]*?>/i) || [''])[0];
-    return !/\ssrc\s*=/i.test(openTag);
-  });
+  const blocks = scriptBlocks(src);
+
+  inlineScripts += blocks.length;
 
   blocks.forEach((block, index) => {
     const body = block
-      .replace(/^<script\b[\s\S]*?>/i, '')
-      .replace(/<\/script\s*>$/i, '')
       // Output tags become a literal; control tags carry JS that stays.
       .replace(/<%[-=]\s*([\s\S]*?)\s*-?%>/g, '0')
       .replace(/<%_?\s*([\s\S]*?)\s*_?%>/g, '$1');
@@ -171,10 +200,21 @@ for (const file of fs.readdirSync(path.join(root, 'routes'))) {
   }
 }
 
+/*
+ * A checker that quietly stopped finding anything reports success, which is
+ * the worst possible failure mode for a checker. The views have inline scripts
+ * in them; if none were found, the scanner is broken.
+ */
+if (ejsFiles.length && inlineScripts === 0) {
+  console.error('FAIL no inline <script> blocks were found in any view - the scanner is broken.\n');
+  failures += 1;
+}
+
 if (failures) {
   console.error(`${failures} problem(s) across ${checked} files.`);
   process.exit(1);
 }
 console.log(
-  `All ${checked} files parsed cleanly${ejs ? '' : ' (built-in EJS parser; install deps for the real one)'}.`
+  `All ${checked} files parsed cleanly, including ${inlineScripts} inline scripts` +
+    `${ejs ? '' : ' (built-in EJS parser; install deps for the real one)'}.`
 );

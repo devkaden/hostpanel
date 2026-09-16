@@ -12,8 +12,15 @@ const npmplus = require('../npmplus');
 const terminal = require('../terminal');
 const { detectHostIp, humanBytes, stripTrailingSlashes } = require('../netutil');
 const { wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 const MASK = '********';
 

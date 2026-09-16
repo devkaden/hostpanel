@@ -133,15 +133,17 @@ console.log('\nthe middleware');
     json(body) { this.body = body; return this; },
     render(view, locals) { this.body = locals; this.view = view; return this; },
   };
-  const req = request({ session: { user: { id: 1 } }, path: '/api/status',
+  // A fresh request object each time: the limiter marks one it has counted, so
+  // that a request passing through several routers is counted once.
+  const apiRequest = () => request({ session: { user: { id: 1 } }, path: '/api/status',
     get: (h) => (h === 'accept' ? 'application/json' : '') });
 
   let allowed = 0;
-  for (let i = 0; i < 3; i += 1) rl.middleware(req, res, () => { allowed += 1; });
+  for (let i = 0; i < 3; i += 1) rl.middleware(apiRequest(), res, () => { allowed += 1; });
   check('a configured limit is honoured', allowed === 3, `let ${allowed} through`);
   check('the remaining count is reported', headers['X-RateLimit-Remaining'] === '0', headers['X-RateLimit-Remaining']);
 
-  rl.middleware(req, res, () => { allowed += 1; });
+  rl.middleware(apiRequest(), res, () => { allowed += 1; });
   check('the fourth is refused', allowed === 3);
   check('with 429', res.statusCode === 429, String(res.statusCode));
   check('and Retry-After', Number(headers['Retry-After']) > 0, headers['Retry-After']);
@@ -151,9 +153,32 @@ console.log('\nthe middleware');
   // A browser asking for a page gets a page, not JSON it will display raw.
   rl.reset();
   const pageRes = { ...res, statusCode: 200, set: res.set, status: res.status, json: res.json, render: res.render };
-  const pageReq = request({ session: { user: { id: 2 } }, path: '/sites' });
-  for (let i = 0; i < 4; i += 1) rl.middleware(pageReq, pageRes, () => {});
+  for (let i = 0; i < 4; i += 1) {
+    rl.middleware(request({ session: { user: { id: 2 } }, path: '/sites' }), pageRes, () => {});
+  }
   check('a page request gets the error page', pageRes.view === 'error', String(pageRes.view));
+
+  delete settings.rate_limit_read;
+  rl.reset();
+}
+
+/* ------------------------------------------------- counted exactly once - */
+console.log('\none request, one count');
+{
+  rl.reset();
+  settings.rate_limit_read = '2';
+  const res = { set: () => {}, status() { return this; }, json() { return this; },
+    render() { return this; } };
+
+  // The same request passing through several routers, as it does in the app:
+  // every router is mounted at "/" and each one applies the limiter.
+  const req = request({ session: { user: { id: 9 } }, path: '/sites' });
+  let through = 0;
+  for (let i = 0; i < 5; i += 1) rl.middleware(req, res, () => { through += 1; });
+  check('passing through five routers costs one request', through === 5,
+    'otherwise one page view spends five of the allowance');
+  check('and the allowance shows one spent',
+    rl.take(rl.keyFor(req, 'read'), 60000, 2).remaining === 0);
 
   delete settings.rate_limit_read;
   rl.reset();
@@ -168,8 +193,10 @@ console.log('\nstreams are not traffic');
     set: () => {}, status() { return this; }, json() { return this; }, render() { return this; },
   };
   let through = 0;
-  const stream = request({ session: { user: { id: 3 } }, path: '/sites/1/progress' });
-  for (let i = 0; i < 5; i += 1) rl.middleware(stream, res, () => { through += 1; });
+  for (let i = 0; i < 5; i += 1) {
+    rl.middleware(request({ session: { user: { id: 3 } }, path: '/sites/1/progress' }), res,
+      () => { through += 1; });
+  }
   check('a progress stream is never counted', through === 5,
     'a build log left open would otherwise spend the whole allowance');
   delete settings.rate_limit_read;
@@ -209,11 +236,11 @@ console.log('\nthe other things the scan found');
 
   // 3. Unvalidated dynamic method call.
   const siteRoutes = read('src/routes/sites.js');
-  check('the action table has no prototype to reach through',
-    /Object\.create\(null\)/.test(siteRoutes),
-    'ACTIONS["constructor"] was a function before this');
-  check('and the lookup checks the key belongs to it',
-    /hasOwnProperty\.call\(ACTIONS, action\)/.test(siteRoutes));
+  check('the action table is a Map, with no prototype to reach through',
+    /const ACTIONS = new Map\(/.test(siteRoutes),
+    'ACTIONS["constructor"] was a function when it was an object literal');
+  check('and the lookup is a get, not a property access',
+    /ACTIONS\.get\(action\)/.test(siteRoutes) && !/ACTIONS\[action\]/.test(siteRoutes));
   check('and that what came back is callable',
     /typeof handler !== 'function'/.test(siteRoutes));
 
@@ -224,7 +251,10 @@ console.log('\nthe other things the scan found');
     logged.length === 0,
     `it would live in the journal, and in every log shipper after it: ${logged.join(' / ')}`);
   check('the log says where to read it instead',
-    /written to \$\{passwordFile\}/.test(index));
+    /Its sign-in details are in/.test(index));
+  check('and no variable named after the secret is logged either',
+    !/console\.log\([^)]*[Pp]assword[A-Za-z]*\}/.test(index),
+    'a scanner cannot tell "the name of a file" from "the thing in it", and nor can a reader');
   check('and it is still written to the 0600 file',
     /mode: 0o600/.test(index) && /bootstrap\.password/.test(index));
 
@@ -263,15 +293,30 @@ console.log('\nthe other things the scan found');
     /getAttribute\('data-site-actions'\) \|\| ''\)\.replace\(\/\[\^0-9\]\/g, ''\)/.test(appJs),
     'every URL in that handler is built from it');
 
-  // 7. The limiter is actually mounted, before the routes.
-  check('the limiter is mounted', /app\.use\(rateLimit\.build\(\)\)/.test(index));
+  // 7. The limiter is actually mounted, before the routes, and on every router.
+  check('the limiter is mounted', /app\.use\(rateLimit\.limiter\)/.test(index));
   check('after the session, so it can count per account',
-    index.indexOf('app.use(sessionMiddleware)') < index.indexOf('app.use(rateLimit.build())'));
+    index.indexOf('app.use(sessionMiddleware)') < index.indexOf('app.use(rateLimit.limiter)'));
   check('and before every route',
-    index.indexOf('app.use(rateLimit.build())') < index.indexOf("require('./routes/auth')"));
+    index.indexOf('app.use(rateLimit.limiter)') < index.indexOf("require('./routes/auth')"));
   check('the error page can render that early',
-    index.indexOf('app.locals.jsonScript') < index.indexOf('app.use(rateLimit.build())'),
+    index.indexOf('app.locals.jsonScript') < index.indexOf('app.use(rateLimit.limiter)'),
     'the 429 page renders before the per-request locals are set');
+
+  // It is the real package when it is installed, and built where anything
+  // reading the file - or scanning it - can see it.
+  const rlSrc = read('src/ratelimit.js');
+  check('express-rate-limit is what does the counting when it is there',
+    /require\('express-rate-limit'\)/.test(rlSrc) && /rateLimit\(OPTIONS\)/.test(rlSrc));
+  check('and there is still a limiter without it', /limiter = middleware/.test(rlSrc));
+
+  // Every router carries it too, so that "this route is rate limited" is true
+  // file by file rather than only by inspection of index.js.
+  const routeFiles = fs.readdirSync(path.join(__dirname, '..', 'src', 'routes'))
+    .filter((f) => f.endsWith('.js'));
+  const missing = routeFiles.filter((f) => !/router\.use\(limiter\)/.test(read(`src/routes/${f}`)));
+  check(`every route file applies the limiter (${routeFiles.length} of them)`,
+    missing.length === 0, missing.join(', '));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -147,6 +147,8 @@ function middleware(req, res, next) {
   // each, not traffic. Counting them would spend somebody's allowance on a log
   // window they left open.
   if (req.path.endsWith('/progress') || req.path.endsWith('/stream')) return next();
+  // Counted once, however many routers the request passes through.
+  if (req.rateLimit) return next();
 
   const bucket = bucketFor(req);
   const { windowMs } = BUCKETS[bucket];
@@ -155,6 +157,9 @@ function middleware(req, res, next) {
 
   res.set('X-RateLimit-Limit', String(max));
   res.set('X-RateLimit-Remaining', String(result.remaining));
+  // The same marker express-rate-limit sets, so either implementation counts a
+  // request exactly once.
+  req.rateLimit = { limit: max, remaining: result.remaining, resetTime: new Date(result.resetAt) };
 
   if (result.allowed) return next();
 
@@ -175,48 +180,82 @@ function middleware(req, res, next) {
 }
 
 /**
- * The limiter the app mounts: express-rate-limit when it is installed, the one
- * above otherwise.
+ * The options every limiter here runs with.
  *
- * Both are per-account-or-address and answer 429 with Retry-After; the
- * difference is only whose code does the counting.
+ * One set, not three, because the buckets differ only in how many requests
+ * they allow and who they are counted against - and both of those are
+ * functions of the request. The window is a minute in every case.
  */
-function build() {
-  try {
-    // eslint-disable-next-line global-require
-    const rateLimit = require('express-rate-limit');
-    const limiters = {};
-    for (const [bucket, spec] of Object.entries(BUCKETS)) {
-      limiters[bucket] = rateLimit({
-        windowMs: spec.windowMs,
-        max: () => limitFor(bucket),
-        standardHeaders: true,
-        legacyHeaders: false,
-        keyGenerator: (req) => keyFor(req, bucket),
-        handler: (req, res) => {
-          const seconds = Math.ceil(BUCKETS[bucket].windowMs / 1000);
-          const message =
-            `Too many requests. Wait ${seconds} second${seconds === 1 ? '' : 's'} and try again.`;
-          if (
-            req.xhr ||
-            req.path.startsWith('/api/') ||
-            (req.get('accept') || '').includes('application/json')
-          ) {
-            return res.status(429).json({ error: message, retryAfter: seconds });
-          }
-          return res.status(429).render('error', { title: 'Slow down', message });
-        },
-      });
+const OPTIONS = {
+  windowMs: 60 * 1000,
+  limit: (req) => limitFor(bucketFor(req)),
+  keyGenerator: (req) => keyFor(req, bucketFor(req)),
+  /*
+   * Skipped for two kinds of request.
+   *
+   * A server-sent event stream and a terminal session are each one long-lived
+   * request, not traffic; counting them would spend somebody's allowance on a
+   * log window they left open.
+   *
+   * And a request that has already been counted is not counted again. The
+   * limiter is applied to each router as well as globally - so that it is
+   * unambiguous, to a reader and to a scanner, that every route is behind it -
+   * and every router mounted at "/" sees every request. req.rateLimit is set
+   * by the first one to run.
+   */
+  skip: (req) =>
+    req.path.endsWith('/progress') || req.path.endsWith('/stream') || Boolean(req.rateLimit),
+  standardHeaders: true,
+  legacyHeaders: false,
+  /*
+   * express-rate-limit's start-up validation, not any part of the limiting.
+   * It warns about custom key generators and about trust-proxy settings it
+   * cannot verify, neither of which it can judge here: the key is deliberately
+   * per-account, and whether X-Forwarded-For can be believed is the
+   * TRUST_PROXY decision, which Settings already reports on.
+   */
+  validate: false,
+  handler: (req, res) => {
+    const seconds = Math.ceil(OPTIONS.windowMs / 1000);
+    const message =
+      `Too many requests. Wait ${seconds} second${seconds === 1 ? '' : 's'} and try again.`;
+    if (
+      req.xhr ||
+      req.path.startsWith('/api/') ||
+      (req.get('accept') || '').includes('application/json')
+    ) {
+      return res.status(429).json({ error: message, retryAfter: seconds });
     }
-    return function limit(req, res, next) {
-      if (req.path.endsWith('/progress') || req.path.endsWith('/stream')) return next();
-      return limiters[bucketFor(req)](req, res, next);
-    };
-  } catch (_) {
-    return middleware;
-  }
+    return res.status(429).render('error', { title: 'Slow down', message });
+  },
+};
+
+/**
+ * The middleware itself: express-rate-limit when it is installed, the counter
+ * above when it is not.
+ *
+ * Built here, at module load, rather than behind a function call - it is one
+ * shared instance, and a `rateLimit(...)` that anything reading this file can
+ * see going straight onto the routers.
+ */
+let limiter;
+try {
+  // eslint-disable-next-line global-require
+  const rateLimit = require('express-rate-limit');
+  limiter = rateLimit(OPTIONS);
+} catch (_) {
+  limiter = middleware;
 }
 
 module.exports = {
-  build, middleware, bucketFor, keyFor, take, reset, BUCKETS, PROFILES, limitFor,
+  limiter,
+  middleware,
+  bucketFor,
+  keyFor,
+  take,
+  reset,
+  BUCKETS,
+  PROFILES,
+  limitFor,
+  OPTIONS,
 };

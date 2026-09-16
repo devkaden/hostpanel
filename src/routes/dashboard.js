@@ -9,8 +9,15 @@ const sites = require('../sites');
 const docker = require('../docker');
 const npmplus = require('../npmplus');
 const { humanBytes } = require('../netutil');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 router.get('/', async (req, res, next) => {
   try {

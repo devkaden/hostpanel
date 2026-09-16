@@ -27,8 +27,15 @@ const express = require('express');
 const sites = require('../sites');
 const preview = require('../preview');
 const { wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 const EXPIRED_PAGE =
   '<!doctype html><meta charset="utf-8">' +

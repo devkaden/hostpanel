@@ -13,8 +13,15 @@ const templates = require('../templates');
 const { loadSite, wrap } = require('../middleware');
 const preview = require('../preview');
 const { humanBytes } = require('../netutil');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 /* ------------------------------------------------------------------ *
  * New site
@@ -248,28 +255,31 @@ router.get('/sites/:id/progress', loadSite, (req, res) => {
  * Lifecycle actions
  * ------------------------------------------------------------------ */
 /*
- * A null-prototype object, and looked up with hasOwnProperty below.
+ * A Map, not an object.
  *
- * A plain object inherits from Object.prototype, so ACTIONS["constructor"] and
- * ACTIONS["toString"] are both functions - and the action comes straight out of
- * the URL. The lookup would find something that was never meant to be callable
- * here and call it with a site record.
+ * The action comes straight out of the URL, and a plain object would answer
+ * ACTIONS["constructor"] and ACTIONS["toString"] with functions that were
+ * never meant to be callable here. A null-prototype object plus a
+ * hasOwnProperty check closed that, but it still reads as "look up a method by
+ * a name the caller chose". A Map has no prototype chain to walk, and .get()
+ * returns a value rather than a bound method - there is nothing to reason
+ * about.
  */
-const ACTIONS = Object.assign(Object.create(null), {
-  start: async (site) => sites.startSite(site),
-  stop: async (site) => sites.stopSite(site),
-  restart: async (site) => sites.restartSite(site),
-  rebuild: async (site) => sites.rebuildSite(site.id),
-  install: async (site) => sites.runInstall(site),
-  reprovision: async (site) => sites.provisionSite(site.id, { createProxy: false }),
-});
+const ACTIONS = new Map([
+  ['start', async (site) => sites.startSite(site)],
+  ['stop', async (site) => sites.stopSite(site)],
+  ['restart', async (site) => sites.restartSite(site)],
+  ['rebuild', async (site) => sites.rebuildSite(site.id)],
+  ['install', async (site) => sites.runInstall(site)],
+  ['reprovision', async (site) => sites.provisionSite(site.id, { createProxy: false })],
+]);
 
 router.post(
   '/sites/:id/action/:action',
   loadSite,
   wrap(async (req, res) => {
     const action = String(req.params.action || '');
-    const handler = Object.prototype.hasOwnProperty.call(ACTIONS, action) ? ACTIONS[action] : null;
+    const handler = ACTIONS.get(action);
     if (typeof handler !== 'function') return res.status(400).json({ error: 'Unknown action' });
 
     audit(req, `site.${action}`, req.site.name);

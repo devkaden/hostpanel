@@ -5,6 +5,7 @@ const { db, audit, getSetting } = require('../db');
 const auth = require('../auth');
 const totp = require('../totp');
 const alerts = require('../alerts');
+const { limiter } = require('../ratelimit');
 
 /*
  * The QR code is a convenience, not a requirement.
@@ -32,6 +33,12 @@ async function qrDataUrl(text) {
 }
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 /**
  * Only same-origin, absolute paths may be redirected to after login.

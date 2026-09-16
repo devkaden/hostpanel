@@ -13,8 +13,15 @@ const { audit, getSetting, getNumericSetting } = require('../db');
 const fm = require('../filemanager');
 const sites = require('../sites');
 const { loadSite, wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 /**
  * The upload limit in force: the Settings value if set, otherwise .env.

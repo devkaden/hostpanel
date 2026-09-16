@@ -32,6 +32,7 @@ const { URL } = require('url');
 
 const { getSetting } = require('./db');
 const { stripTrailingSlashes } = require('./netutil');
+const { isPrivateHost } = require('./addresses');
 
 // Session state: a Bearer token (legacy NPM) and/or a cookie jar (NPMplus).
 let tokenCache = { token: null, cookies: null, expiresAt: 0, forUrl: '' };
@@ -109,7 +110,19 @@ function request(
     },
     timeout,
   };
-  if (isHttps && c.insecure) options.rejectUnauthorized = false;
+  /*
+   * Certificate checking is skipped only when the admin asked for it AND
+   * NPMplus is on this machine or this network.
+   *
+   * The setting exists because a homelab NPMplus is usually serving its own
+   * admin interface over a certificate it signed itself, and there is no
+   * certificate authority in the picture to fix that. That reasoning stops at
+   * the edge of the LAN: an NPMplus reachable at a public name has a real
+   * certificate available to it, and "the certificate is wrong" out there is
+   * an answer worth hearing rather than a warning to switch off.
+   */
+  const skipCertCheck = isHttps && c.insecure && isPrivateHost(target.hostname);
+  if (skipCertCheck) options.rejectUnauthorized = false;
 
   return new Promise((resolve, reject) => {
     const req = lib.request(options, (res) => {
@@ -165,7 +178,11 @@ function request(
       if (err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || err.code === 'SELF_SIGNED_CERT_IN_CHAIN') {
         return reject(
           new Error(
-            'NPMplus is using a self-signed certificate. Enable "Allow self-signed certificate" in Settings.'
+            isPrivateHost(target.hostname)
+              ? 'NPMplus is using a self-signed certificate. Enable "Allow self-signed certificate" in Settings.'
+              : `NPMplus at ${target.hostname} is using a certificate that does not check out. That ` +
+                'setting only applies to an address on this machine or this network, so fix the ' +
+                'certificate rather than skipping the check on a public address.'
           )
         );
       }

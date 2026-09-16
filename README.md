@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-572-3fbf7f" alt="572 tests">
+  <img src="https://img.shields.io/badge/tests-578-3fbf7f" alt="578 tests">
 </p>
 
 ---

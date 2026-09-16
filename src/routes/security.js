@@ -14,8 +14,15 @@ const { db, getSetting } = require('../db');
 const auth = require('../auth');
 const alerts = require('../alerts');
 const { wrap } = require('../middleware');
+const { limiter } = require('../ratelimit');
 
 const router = express.Router();
+
+/*
+ * Every route in this file is rate limited. The same instance is mounted on
+ * the app as well; it counts a request once, wherever it first sees it.
+ */
+router.use(limiter);
 
 /** Failed sign-ins over the last day, by address - the raw material of an alert. */
 function recentFailures(hours = 24) {
