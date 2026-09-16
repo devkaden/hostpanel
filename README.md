@@ -245,7 +245,12 @@ stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
 
 ### If something breaks in one browser only
 
-Try `DISABLE_CSP=true` in `/opt/hostpanel/data/.env`, restart, and test again.
+Try `DISABLE_CSP=true` in `/opt/hostpanel/app/.env`, restart, and test again:
+
+```bash
+echo 'DISABLE_CSP=true' >> /opt/hostpanel/app/.env
+systemctl restart hostpanel
+```
 If the problem disappears, the Content-Security-Policy is the cause. This is
 worth knowing because a CSP refusal does not announce itself as one: Safari
 reports it as `NotReadableError` or `WebKitBlobResource error 4`, which reads
