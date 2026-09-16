@@ -69,6 +69,47 @@
         </div>
 
         <div class="card">
+          <h2>Security</h2>
+          <p class="muted small">
+            These matter most when the panel is reachable from outside your own network.
+          </p>
+
+          <div class="field">
+            <label for="require_2fa">
+              Require two-factor authentication
+              <span class="help" data-help="Accounts covered by this must set up an authenticator app before they can use the panel. They are prompted automatically at their next sign-in."></span>
+            </label>
+            <select id="require_2fa" name="require_2fa">
+              <option value="off" <%= settings.require_2fa === 'off' ? 'selected' : '' %>>Optional - each person decides</option>
+              <option value="admins" <%= settings.require_2fa === 'admins' ? 'selected' : '' %>>Required for administrators</option>
+              <option value="all" <%= settings.require_2fa === 'all' ? 'selected' : '' %>>Required for everyone</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="min_password_length">Minimum password length</label>
+            <input id="min_password_length" name="min_password_length" type="number" min="8" max="128"
+                   value="<%= settings.min_password_length || '10' %>">
+            <div class="hint">Applies the next time someone changes their password.</div>
+          </div>
+
+          <h3 class="mt">How this install stands</h3>
+          <ul class="seclist">
+            <% security.items.forEach(function (item) { %>
+              <li class="<%= item.ok === true ? 'ok' : (item.ok === false ? 'bad' : (item.warn ? 'warn' : 'info')) %>">
+                <span class="seclist-icon">
+                  <%- item.ok === true ? icon('check') : (item.ok === false ? icon('alert') : icon('shield')) %>
+                </span>
+                <div>
+                  <strong><%= item.label %></strong>
+                  <div class="muted small"><%= item.detail %></div>
+                </div>
+              </li>
+            <% }) %>
+          </ul>
+        </div>
+
+        <div class="card">
           <h2>Appearance</h2>
 
           <div class="field-row">

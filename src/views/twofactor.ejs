@@ -1,0 +1,157 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap wrap-narrow">
+
+  <div class="page-head">
+    <div>
+      <h1>Two-factor authentication</h1>
+      <p class="sub">
+        A code from your phone, on top of your password. It is the single most
+        useful thing you can turn on for an account that is reachable from the
+        internet.
+      </p>
+    </div>
+  </div>
+
+  <% if (error) { %><div class="alert alert-error"><%= error %></div><% } %>
+  <% if (notice) { %><div class="alert alert-ok"><%= notice %></div><% } %>
+
+  <% if (required && !enabled) { %>
+    <div class="alert alert-warn">
+      <strong>Two-factor is required for your account.</strong>
+      Finish setting it up to carry on using the panel.
+    </div>
+  <% } %>
+
+  <% if (recoveryCodes) { %>
+    <div class="card">
+      <h2>Save your recovery codes</h2>
+      <p class="muted">
+        Each of these works once, in place of a code from your phone. They are
+        stored hashed, exactly like a password &mdash; <strong>this is the only
+        time they can be shown</strong>. Put them somewhere you can reach
+        without this panel and without your phone.
+      </p>
+      <div class="recovery-grid">
+        <% recoveryCodes.forEach(function (c) { %><code><%= c %></code><% }) %>
+      </div>
+      <div class="mt">
+        <button class="btn" data-copy="<%= recoveryCodes.join('\n') %>" data-copy-label="Recovery codes">
+          <%- icon('copy') %><span>Copy all</span>
+        </button>
+        <a class="btn btn-primary" href="/"><%- icon('check') %><span>I have saved them</span></a>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (!enabled && secret) { %>
+    <div class="card">
+      <h2>Set it up</h2>
+      <ol class="steps">
+        <li>
+          <strong>Install an authenticator app</strong> if you do not have one.
+          Any of them work &mdash; Google Authenticator, Microsoft Authenticator,
+          1Password, Bitwarden, or Apple's built-in passwords app.
+        </li>
+        <li>
+          <strong>Add this account.</strong>
+          <% if (qr) { %>
+            Scan the code below, or enter the key by hand.
+          <% } else { %>
+            Choose "enter a setup key" and type the key below.
+          <% } %>
+        </li>
+        <li><strong>Type the six-digit code</strong> it shows, to prove it works.</li>
+      </ol>
+
+      <div class="twofa-setup">
+        <% if (qr) { %>
+          <div class="twofa-qr"><img src="<%= qr %>" alt="Setup QR code" width="240" height="240"></div>
+        <% } %>
+        <div class="twofa-key">
+          <label class="muted small" for="totp-secret">Setup key</label>
+          <div class="copy-field">
+            <input id="totp-secret" type="text" value="<%= secret %>" readonly onclick="this.select()">
+            <button class="btn btn-sm" data-copy="<%= secret %>" data-copy-label="Setup key">Copy</button>
+          </div>
+          <p class="muted small mt">
+            Account name: <code><%= user.username %></code> &middot;
+            Issuer: <code><%= panelTitle %></code>
+          </p>
+        </div>
+      </div>
+
+      <form method="post" action="/account/2fa/enable" autocomplete="off" class="mt">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field">
+          <label for="code">Code from your app</label>
+          <input id="code" name="code" type="text" class="code-input" inputmode="numeric"
+                 autocomplete="one-time-code" placeholder="000000" required>
+          <div class="hint">
+            Nothing is switched on until this code checks out, so a mistyped key
+            or a phone with the wrong clock cannot lock you out.
+          </div>
+        </div>
+        <button class="btn btn-primary" type="submit">
+          <%- icon('check') %><span>Turn on two-factor</span>
+        </button>
+      </form>
+    </div>
+  <% } %>
+
+  <% if (enabled && !recoveryCodes) { %>
+    <div class="card">
+      <h2>
+        <span class="pill pill-running"><span class="dot"></span>on</span>
+        Two-factor is protecting this account
+      </h2>
+      <p class="muted">
+        You have <strong><%= remaining %></strong> recovery code<%= remaining === 1 ? '' : 's' %> left.
+        <% if (remaining <= 2) { %>
+          That is not many &mdash; generate a fresh set below.
+        <% } %>
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>New recovery codes</h3>
+      <p class="muted small">
+        Generating a new set replaces the old one immediately. Do this if you have
+        used most of them, or if you think someone else has seen the list.
+      </p>
+      <form method="post" action="/account/2fa/recovery" autocomplete="off">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field">
+          <label for="rec-password">Confirm your password</label>
+          <input id="rec-password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn" type="submit"><%- icon('refresh') %><span>Generate new codes</span></button>
+      </form>
+    </div>
+
+    <% if (!required) { %>
+      <div class="card">
+        <h3>Turn it off</h3>
+        <p class="muted small">
+          Your account goes back to being protected by a password alone.
+        </p>
+        <form method="post" action="/account/2fa/disable" autocomplete="off">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="off-password">Confirm your password</label>
+            <input id="off-password" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-danger" type="submit">
+            <%- icon('alert') %><span>Turn off two-factor</span>
+          </button>
+        </form>
+      </div>
+    <% } else { %>
+      <div class="alert alert-info">
+        An administrator has made two-factor mandatory<%= user.role === 'admin' ? ' for administrators' : '' %>,
+        so it cannot be turned off from here.
+      </div>
+    <% } %>
+  <% } %>
+</div>
+<%- include('partials/foot') %>

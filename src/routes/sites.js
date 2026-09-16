@@ -148,10 +148,25 @@ router.get(
       provisioning: req.query.provisioning === '1',
       busy: sites.isBusy(site.id),
       hostIp: getSetting('host_ip') || '',
-      // Previews hit the container directly by port, so they work before DNS
-      // or the reverse proxy are set up - and show this site specifically
-      // rather than whatever the domain currently resolves to.
+      /*
+       * Two preview addresses, because neither works on its own.
+       *
+       * The direct one hits the container by port, so it works before DNS or
+       * the reverse proxy exist. But it is plain http, and a browser will not
+       * embed an http frame in a page served over https - which is exactly
+       * what happens once the panel itself is behind the reverse proxy. The
+       * frame is blocked silently, with no error and no console message: a
+       * blank white rectangle.
+       *
+       * So when the site has a domain, that is the preferred source, since it
+       * matches the panel's own scheme. The direct URL stays available as the
+       * fallback and is what gets shown before a domain is configured.
+       */
       previewUrl: getSetting('host_ip') ? `http://${getSetting('host_ip')}:${site.port}/` : '',
+      previewDomainUrl: (() => {
+        const list = sites.allDomains(site);
+        return list.length ? `http${site.ssl ? 's' : ''}://${list[0]}/` : '';
+      })(),
       config,
       hostShell: terminal.hostShellAvailable(),
       owners:

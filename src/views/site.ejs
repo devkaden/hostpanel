@@ -95,7 +95,7 @@
       </div>
 
       <div class="preview-bar">
-        <span class="preview-url"><%= previewUrl %></span>
+        <span class="preview-url" id="preview-url-label"><%= previewUrl %></span>
         <% if (domains.length) { %>
           <span class="muted small">
             &mdash; this is the site itself, reached directly. Visitors go through
@@ -107,6 +107,17 @@
       <div class="alert alert-warn" id="csp-note" style="display:none"></div>
       <div class="alert alert-warn" id="preview-note-live" style="display:none"></div>
 
+      <% if (live.framingRefusedBy) { %>
+        <div class="alert alert-info">
+          <strong>This site does not allow being shown in a frame.</strong>
+          It sends <code><%= live.framingRefusedBy %></code>, which tells every browser
+          to refuse to embed it. That is the site's own setting, not the panel's, and
+          nothing here can override it &mdash; a browser would show a blank rectangle
+          instead. Many frameworks send this by default; Express with Helmet is the
+          usual source. Use <strong>New tab</strong> to look at the site, or remove the
+          header in the site's own code if you want the preview to work.
+        </div>
+      <% } else { %>
       <div class="preview-frame size-desktop" id="preview-frame">
         <iframe
           id="preview-iframe"
@@ -122,6 +133,7 @@
           </div>
         <% } %>
       </div>
+      <% } %>
     </div>
   <% } %>
 
@@ -427,6 +439,8 @@
 <script>
   var SITE_ID = <%= site.id %>;
   var REACHABLE = <%- jsonScript(live.reachable !== false) %>;
+  var PREVIEW_URL = <%- jsonScript(previewUrl || '') %>;
+  var PREVIEW_DOMAIN_URL = <%- jsonScript(previewDomainUrl || '') %>;
 
   /* ---------------------------------------------------------- actions */
   // The tab bar's buttons are handled in app.js, so every site tab has them.
@@ -592,16 +606,77 @@
     var loaded = false;
     iframe.addEventListener('load', function () { loaded = true; });
 
-    setTimeout(function () {
+    /*
+     * A page served over https cannot embed an http frame. The browser blocks
+     * it outright, with no error event and nothing in the console - the frame
+     * simply stays blank. This is the state the panel is in as soon as it sits
+     * behind the reverse proxy, which is why the preview worked by IP and not
+     * by domain.
+     *
+     * When the site has a domain of its own, that is the way out: same scheme,
+     * no mixed content. Without one there is nothing to switch to, so say so
+     * rather than showing a white rectangle.
+     */
+    if (location.protocol === 'https:' && /^http:/.test(iframe.src)) {
+      if (PREVIEW_DOMAIN_URL && /^https:/.test(PREVIEW_DOMAIN_URL)) {
+        iframe.src = PREVIEW_DOMAIN_URL;
+        var label = document.getElementById('preview-url-label');
+        if (label) label.textContent = PREVIEW_DOMAIN_URL;
+      } else {
+        var mixed = document.getElementById('preview-note-live');
+        mixed.style.display = '';
+        mixed.innerHTML = PREVIEW_DOMAIN_URL
+          ? 'You are viewing the panel over HTTPS, and this site is only reachable over ' +
+            'plain HTTP, so the browser will not embed it here. Open the panel by IP ' +
+            'address to use the preview, or give this site a certificate.'
+          : 'You are viewing the panel over HTTPS, and the preview address is plain ' +
+            'HTTP, so the browser refuses to embed it. Give this site a domain, or ' +
+            'open the panel by IP address, and the preview works again.';
+        loaded = true; // the five second check would only repeat this
+      }
+    }
+
+    setTimeout(async function () {
       if (loaded) return;
       var note = document.getElementById('preview-note-live');
       note.style.display = '';
-      note.innerHTML = REACHABLE
-        ? 'The site is answering on port <code><%= site.port %></code>, but the browser ' +
-          'did not render it here. Try <strong>New tab</strong> - if it loads there, ' +
-          'something is stopping this page from embedding it.'
-        : 'Nothing is answering on port <code><%= site.port %></code> yet, so there is ' +
+
+      if (!REACHABLE) {
+        note.innerHTML =
+          'Nothing is answering on port <code><%= site.port %></code> yet, so there is ' +
           'nothing to show. Check the <a href="/sites/<%= site.id %>/logs">Logs</a> tab.';
+        return;
+      }
+
+      // The server reached the site over loopback. That says nothing about
+      // whether *this browser* can reach it: the panel and the site are on
+      // different ports, and a firewall that allows the panel's port can
+      // easily block the site's. Asking the browser directly settles it.
+      note.textContent = 'Checking whether your browser can reach the site...';
+      var canReach = true;
+      try {
+        // credentials: 'omit' matters. This is the one request in the panel
+        // that goes to another origin, and the panel's session cookie has no
+        // business being sent there.
+        await fetch(PREVIEW_URL, { mode: 'no-cors', cache: 'no-store', credentials: 'omit' });
+      } catch (err) {
+        canReach = false;
+      }
+
+      if (canReach) {
+        note.innerHTML =
+          'Your browser can reach the site, but it did not render inside this page. ' +
+          'Use <strong>New tab</strong> - something is stopping the panel from ' +
+          'embedding it, most often a browser extension or a privacy setting that ' +
+          'blocks cross-origin frames.';
+      } else {
+        note.innerHTML =
+          'Your browser cannot reach <code><%= previewUrl %></code>, even though the ' +
+          'server can. The site ports are not open to this machine: the panel and ' +
+          'the sites are on different ports, so a firewall rule that allows one ' +
+          'can easily block the others. ' +
+          'Visitors reaching the site through your reverse proxy are unaffected.';
+      }
     }, 5000);
 
     document.getElementById('preview-reload').addEventListener('click', function () {

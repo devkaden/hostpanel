@@ -119,18 +119,52 @@ router.post(
     let password = String(req.body.password || '').trim();
     const generated = !password;
     if (generated) password = auth.randomPassword();
-    else if (password.length < 10) {
-      return res.status(400).json({ error: 'Password must be at least 10 characters.' });
+    else if (password.length < auth.minPasswordLength()) {
+      return res.status(400).json({
+        error: `Password must be at least ${auth.minPasswordLength()} characters.`,
+      });
     }
 
     db.prepare('UPDATE users SET password_hash = ?, must_change_pw = 1 WHERE id = ?').run(
       auth.hashPassword(password),
       id
     );
-    // A reset password must also end that user's existing sessions.
+    // A reset password must also end that user's existing sessions - both the
+    // stored ones and, via the epoch, any that a stale cookie still points at.
     destroySessionsForUser(id);
+    auth.bumpSessionEpoch(id);
     audit(req, 'user.reset_password', user.username);
     return res.json({ ok: true, password, generated });
+  })
+);
+
+/**
+ * Clears a user's second factor, for when they have lost the phone and the
+ * recovery codes with it.
+ *
+ * Deliberately an administrator action rather than a self-service reset: a
+ * "lost my authenticator" link that anyone who knows a password can use turns
+ * two-factor back into one factor. If the policy requires 2FA, the next sign-in
+ * walks them through setting it up again.
+ */
+router.post(
+  '/users/:id/reset-2fa',
+  auth.requireAdmin,
+  wrap(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const user = auth.findUser(id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.totp_enabled) {
+      return res.status(400).json({ error: `${user.username} does not have two-factor on.` });
+    }
+
+    db.prepare(
+      "UPDATE users SET totp_secret = '', totp_enabled = 0, recovery_codes = '[]' WHERE id = ?"
+    ).run(id);
+    destroySessionsForUser(id);
+    auth.bumpSessionEpoch(id);
+    audit(req, 'user.reset_2fa', user.username);
+    return res.json({ ok: true });
   })
 );
 

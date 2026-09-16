@@ -379,6 +379,69 @@ console.log('\ncache headers do not break downloads');
     /ASSET_VERSION/.test(src));
 }
 
+console.log('\ntwo-factor sign-in flow');
+{
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'auth.js'), 'utf8');
+  const authSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+
+  // The bypass this guards against: creating the session at the password step
+  // and "upgrading" it after the code. Anything holding a real session before
+  // the second factor is a half-authenticated state waiting to be walked
+  // through.
+  const loginPost = routes.slice(routes.indexOf("router.post('/login'"), routes.indexOf('Second factor at sign-in'));
+  check('a session is not signed in before the second factor',
+    /pending2fa = \{/.test(loginPost) && !/auth\.login\(req, user\)[\s\S]{0,200}pending2fa/.test(loginPost));
+  check('the pending state names only the user id and a timestamp',
+    /pending2fa = \{ id: user\.id, at: Date\.now\(\)/.test(loginPost));
+  check('the pending state expires', /PENDING_MS/.test(routes));
+
+  check('the code step is rate limited like the password step',
+    /auth\.isLockedOut\(user\.username, req\.ip\)/.test(routes) &&
+      /auth\.recordFailure\(user\.username, req\.ip\)/.test(routes));
+  check('the session id is regenerated after the code',
+    /delete req\.session\.pending2fa;[\s\S]{0,120}req\.session\.regenerate/.test(routes));
+
+  check('recovery codes are single use',
+    /codes\.splice\(index, 1\)/.test(routes));
+  // Every freshly generated set must be hashed before it is written. The
+  // plain codes are shown once and never stored, exactly like a password.
+  const generated = [...routes.matchAll(/generateRecoveryCodes\(/g)];
+  check('recovery codes are generated somewhere', generated.length >= 2);
+  check('every generated set is hashed before being stored',
+    generated.every((m) => /\.map\(totp\.hashRecoveryCode\)/.test(routes.slice(m.index, m.index + 400))));
+
+  check('enabling requires a working code first',
+    /if \(!totp\.verify\(secret, code\)\)/.test(routes));
+  check('the secret waits in the session until it is proven',
+    /req\.session\.totpSetup/.test(routes));
+  check('turning it off requires the password again',
+    /2fa\/disable[\s\S]{0,900}verifyPassword/.test(routes));
+  check('a required policy cannot be switched off by the user',
+    /twoFactorRequiredFor\(req\.user\)\) \{\s*\n\s*return render\('Two-factor is required/.test(routes));
+
+  check('a credential change invalidates other sessions',
+    /session_epoch/.test(authSrc) && /bumpSessionEpoch/.test(authSrc));
+  check('and requireAuth actually checks the epoch',
+    /\(req\.session\.epoch \|\| 0\) !== fresh\.session_epoch/.test(authSrc));
+
+  const totpSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'totp.js'), 'utf8');
+  check('code comparison is constant time', /timingSafeEqual/.test(totpSrc));
+  check('the verification window is narrow', /window = 1/.test(totpSrc));
+}
+
+console.log('\nlogin throttling survives a restart');
+{
+  const authSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+  // In-memory counters reset whenever the service restarts, and this panel
+  // restarts itself on every update.
+  check('attempts are recorded in the database', /INSERT INTO login_attempts/.test(authSrc));
+  check('there is a per-IP bucket, not only per-account',
+    /MAX_PER_IP/.test(authSrc) && /ipKey/.test(authSrc));
+  check('old attempts are reaped', /DELETE FROM login_attempts WHERE created_at/.test(authSrc));
+  check('a database error does not lock everyone out',
+    /catch \(_\) \{\s*\n\s*return 0;/.test(authSrc));
+}
+
 console.log('\nCSP failures are visible');
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');
@@ -428,7 +491,7 @@ console.log('\nsecurity headers declared in src/index.js');
   // mentions CSP. This cost a very long debugging session.
   for (const directive of [
     "default-src 'self' blob:",
-    "connect-src 'self' blob: ws: wss:",
+    "connect-src 'self' blob: http: https: ws: wss:",
     "img-src 'self' data: blob:",
   ]) {
     check(`CSP allows blob resources: ${directive}`, src.includes(directive));

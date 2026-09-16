@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const net = require('net');
+const http = require('http');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -753,24 +754,51 @@ async function statusFor(site) {
   // "running but not answering" is the other state worth naming. A container
   // can be perfectly healthy while the app inside it is unreachable, and the
   // preview then shows a blank page with nothing to explain it.
-  const reachable = state === 'running' ? await portAnswers(site.port) : null;
-  return { state, dbState, reachable, needsDependencies: needsDependencies(site) };
+  const probe = state === 'running' ? await probeSite(site.port) : {};
+  return {
+    state,
+    dbState,
+    reachable: state === 'running' ? probe.answers : null,
+    framingRefusedBy: probe.framingRefusedBy || null,
+    needsDependencies: needsDependencies(site),
+  };
 }
 
-/** Opens a TCP connection to a published port, to see whether anything answers. */
-function portAnswers(port, timeoutMs = 1500) {
+/**
+ * Asks the site for its headers, to learn two things the UI cannot guess.
+ *
+ * Whether anything answers at all, and whether the site allows being shown in
+ * a frame. The second matters because a site that sends X-Frame-Options: DENY
+ * - which many frameworks do by default - renders as a blank white rectangle
+ * in the preview, with no error anywhere. That is indistinguishable from a
+ * broken panel, and it is not something the panel can or should override: the
+ * header is the site's own decision. It can only be reported.
+ */
+function probeSite(port, timeoutMs = 2000) {
   return new Promise((resolve) => {
-    if (!port) return resolve(false);
-    const socket = new net.Socket();
-    const done = (answer) => {
-      socket.destroy();
-      resolve(answer);
-    };
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => done(true));
-    socket.once('timeout', () => done(false));
-    socket.once('error', () => done(false));
-    socket.connect(port, '127.0.0.1');
+    if (!port) return resolve({ answers: false });
+
+    const req = http.request(
+      { host: '127.0.0.1', port, method: 'HEAD', path: '/', timeout: timeoutMs },
+      (res) => {
+        const xfo = String(res.headers['x-frame-options'] || '').toLowerCase();
+        const csp = String(res.headers['content-security-policy'] || '').toLowerCase();
+        const ancestors = (csp.match(/frame-ancestors([^;]*)/) || [])[1];
+
+        let framingRefusedBy = null;
+        if (xfo.includes('deny') || xfo.includes('sameorigin')) {
+          framingRefusedBy = `X-Frame-Options: ${xfo}`;
+        } else if (ancestors !== undefined && /'none'/.test(ancestors)) {
+          framingRefusedBy = "Content-Security-Policy: frame-ancestors 'none'";
+        }
+
+        res.resume();
+        resolve({ answers: true, framingRefusedBy });
+      }
+    );
+    req.on('timeout', () => { req.destroy(); resolve({ answers: false }); });
+    req.on('error', () => resolve({ answers: false }));
+    req.end();
     return undefined;
   });
 }

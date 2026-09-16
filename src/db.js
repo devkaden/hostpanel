@@ -135,6 +135,36 @@ addColumnIfMissing('sites', 'notes', "TEXT NOT NULL DEFAULT ''");
 // at runtime with a message about a missing binary rather than a missing
 // dependency.
 addColumnIfMissing('sites', 'system_packages', "TEXT NOT NULL DEFAULT ''");
+
+/* ------------------------------------------------------ two-factor auth --- */
+addColumnIfMissing('users', 'totp_secret', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('users', 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
+// Hashed, one-time, for when the phone is gone.
+addColumnIfMissing('users', 'recovery_codes', "TEXT NOT NULL DEFAULT '[]'");
+/*
+ * Bumped whenever a credential changes, and compared against the value stored
+ * in the session. Without it, changing a password or turning off two-factor
+ * leaves every session that was already open still signed in - which is the
+ * opposite of what someone changing their password after a scare expects.
+ */
+addColumnIfMissing('users', 'session_epoch', 'INTEGER NOT NULL DEFAULT 1');
+
+/*
+ * Failed sign-ins, kept on disk rather than in memory.
+ *
+ * In-memory throttling is defeated by restarting the service, and a panel on
+ * the public internet gets restarted by its own updater. Persisting it means a
+ * lockout actually lasts.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  key        TEXT NOT NULL,
+  ip         TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_key ON login_attempts(key, created_at);
+`);
 addColumnIfMissing('users', 'site_quota', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('users', 'must_change_pw', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -166,6 +196,13 @@ const SETTING_DEFAULTS = {
   host_ip: config.hostIp || '',
   panel_title: 'HostPanel',
   allow_host_shell: '1',
+
+  // Two-factor policy: off | admins | all.
+  // "admins" is the sensible default for a panel reachable from outside: the
+  // accounts that can reach the Docker socket are the ones worth protecting.
+  require_2fa: 'off',
+  // Minimum password length. Raised automatically when 2FA is required.
+  min_password_length: '10',
 
   // Ports. Empty means "use the value from .env / the built-in default",
   // so an untouched install keeps behaving exactly as before.

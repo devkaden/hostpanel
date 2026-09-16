@@ -67,6 +67,16 @@
           <a class="menu-item" href="/account/password" role="menuitem">
             <%- icon('key') %><span>Change password</span>
           </a>
+          <a class="menu-item" href="/account/2fa" role="menuitem">
+            <%- icon('shield') %>
+            <span>Two-factor
+              <% if (typeof twoFactorOn !== 'undefined' && twoFactorOn) { %>
+                <span class="pill pill-running">on</span>
+              <% } else { %>
+                <span class="pill pill-error">off</span>
+              <% } %>
+            </span>
+          </a>
           <div class="menu-sep"></div>
           <form method="post" action="/logout">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">

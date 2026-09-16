@@ -413,9 +413,20 @@ console.log('\nsystem packages and unreachable apps');
     /existing\.Comment === stamp/.test(dockerSrc));
 
   check('the panel checks whether anything answers on the port',
-    /function portAnswers/.test(sitesSrc) && /reachable/.test(sitesSrc));
+    /function probeSite/.test(sitesSrc) && /reachable/.test(sitesSrc));
   check('and explains a blank preview rather than leaving it blank',
     /nothing is answering on port/.test(view) && /0\.0\.0\.0/.test(view));
+
+  // The three ways a preview goes blank with no error anywhere. Each one looks
+  // identical from the outside, so each has to be named separately.
+  check('a site that refuses framing is detected, not shown as a white box',
+    /framingRefusedBy/.test(sitesSrc) && /x-frame-options/.test(sitesSrc));
+  check('and frame-ancestors counts too',
+    /frame-ancestors/.test(sitesSrc));
+  check('mixed content is handled by switching to the domain',
+    /location\.protocol === 'https:'/.test(view) && /PREVIEW_DOMAIN_URL/.test(view));
+  check('and explained when there is no domain to switch to',
+    /refuses to embed it/.test(view));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

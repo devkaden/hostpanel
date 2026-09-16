@@ -127,7 +127,12 @@ app.use((req, res, next) => {
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
         "media-src 'self' blob:",
-        "connect-src 'self' blob: ws: wss:",
+        // http:/https: so the page can check whether the browser can actually
+        // reach a site's port before blaming the iframe. Without it the check
+        // is itself blocked, and a blank preview stays unexplained. The panel
+        // already allows inline script, so connect-src is not what is holding
+        // XSS back here - clarity is worth more than the appearance of rigour.
+        "connect-src 'self' blob: http: https: ws: wss:",
         "worker-src 'self' blob:",
         frameSrc,
         "form-action 'self'",
@@ -184,6 +189,9 @@ function jsonForScript(value) {
 app.use((req, res, next) => {
   res.locals.jsonScript = jsonForScript;
   res.locals.panelTitle = getSetting('panel_title') || 'HostPanel';
+  // The nav shows whether the signed-in account has a second factor, because
+  // "off" is worth noticing every time you look at it.
+  res.locals.twoFactorOn = Boolean(req.user && req.user.totp_enabled);
   res.locals.siteTypes = config.siteTypes;
   res.locals.currentPath = req.path;
   res.locals.flash = null;

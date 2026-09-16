@@ -243,6 +243,26 @@ arranged. The **Upload folder** button goes through the file picker instead,
 which works consistently in every browser, and is also the answer for files
 stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
 
+### Why a preview can be blank
+
+Three different things produce an identical white rectangle, with no error in
+the console and nothing in the logs. The panel now distinguishes them:
+
+1. **The site refuses to be framed.** `X-Frame-Options: DENY` or
+   `frame-ancestors 'none'` tells every browser not to embed the page. Express
+   with Helmet sends it by default, so most Node apps land here. The panel
+   detects it and explains, because this is the site's own decision and nothing
+   the panel does can or should override it.
+2. **Mixed content.** A panel served over HTTPS cannot embed a plain-HTTP
+   frame, and the browser blocks it silently. This is the state as soon as the
+   panel itself sits behind the reverse proxy — which is why a preview can work
+   by IP address and not by domain. When the site has a domain of its own the
+   panel switches the preview to it; otherwise it says so.
+3. **The port is not reachable from your machine.** The panel and the sites are
+   on different ports, so a firewall rule that allows one can block the others.
+   The page asks your browser directly rather than assuming that reaching the
+   site from the server means you can reach it too.
+
 ### If something breaks in one browser only
 
 Try `DISABLE_CSP=true` in `/opt/hostpanel/app/.env`, restart, and test again:
@@ -500,6 +520,7 @@ password can come with a Copy button.
 | Files | Traversal, symlink-escape and zip-slip guards; downloads always served as attachments |
 | Headers | CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `SECURE_COOKIES=true` |
 | Secrets | Database `0600`, data directory `0750`, `.env` `0600` |
+| Two-factor | TOTP (RFC 6238), optional or required per role, with single-use recovery codes |
 | Generated passwords | `crypto.randomBytes` with rejection sampling (no modulo bias) |
 | Audit | Every action logged with user, target and IP |
 
@@ -520,6 +541,71 @@ the hang and the mid-body abort both stay fixed.
 
 All of it runs without dependencies installed and without touching Docker or
 your real NPMplus.
+
+## Exposing the panel to the internet
+
+The sites are meant to be public. The panel is a different question, and worth
+deciding deliberately rather than by default.
+
+**What an account can reach.** An administrator account can reach the Docker
+socket through this panel, which is equivalent to root on the host. Give
+administrator only to people you would give root to; everyone else gets a
+standard account, which sees only their own sites.
+
+**Two-factor authentication.** Settings → Security turns it on, either for
+administrators or for everyone. Covered accounts are walked through setup at
+their next sign-in and cannot use the panel until it is done.
+
+- Standard TOTP (RFC 6238), so any authenticator app works. The implementation
+  has no dependencies and is checked against the RFC's own test vectors —
+  `npm run test:totp`.
+- Nothing is switched on until a code from the app checks out, so a mistyped
+  key or a phone with a wrong clock cannot lock anyone out.
+- Ten single-use recovery codes are shown once and stored hashed, like
+  passwords. An administrator can clear someone's second factor from the Users
+  page for a lost phone; that is deliberately not self-service, because a
+  "lost my authenticator" link anybody with a password can use is not a second
+  factor.
+- The password step never creates a signed-in session. Until the code is
+  verified the session holds only a user id and a timestamp that expires after
+  five minutes, so there is no half-authenticated state to walk through.
+- The code step is rate limited exactly like the password step. Six digits with
+  unlimited guesses is not a second factor.
+
+**Sessions end when credentials change.** Changing a password, turning
+two-factor on or off, or an administrator resetting either, invalidates every
+other session for that account. A password changed after a scare is worthless
+if the session created with the old one is still signed in somewhere.
+
+**Login throttling is on disk, not in memory.** Eight failures per
+username+address, twenty per account, thirty per address, in a ten minute
+window. Kept in the database because in-memory counters are cleared by a
+restart — and this panel restarts itself whenever it updates.
+
+**Settings → Security lists how the install actually stands**: whether secure
+cookies are on, whether the session secret is still the shipped default,
+whether `TRUST_PROXY` matches reality, whether the host shell is open, and
+which administrators have not set up two-factor yet. It is a list of facts
+rather than a score, because a panel reachable only over a VPN genuinely does
+not need all of it.
+
+Behind a reverse proxy, set both of these in `/opt/hostpanel/app/.env`:
+
+```bash
+SECURE_COOKIES=true   # session cookies never sent over plain HTTP
+TRUST_PROXY=true      # believe X-Forwarded-For, so rate limiting counts the real client
+```
+
+`TRUST_PROXY=true` is only correct if the panel is reachable *exclusively*
+through your proxy. If it is also reachable directly, anyone can forge the
+address the rate limiter counts against.
+
+**The honest caveat.** This panel has not had the adversarial attention that
+CloudPanel or Plesk have had. Two-factor, throttling and session invalidation
+raise the bar considerably, but the strongest single step is still to keep the
+panel off the public internet — a VPN or Tailscale costs nothing and removes
+the entire category of problem. Everything above is for when that is not an
+option.
 
 ### Known limitations
 

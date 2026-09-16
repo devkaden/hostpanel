@@ -6,6 +6,9 @@
       <h1>Users</h1>
       <p class="sub">Administrators see and manage every site. Standard users only see the sites they own.</p>
     </div>
+    <div class="page-actions">
+      <button class="btn btn-primary" id="add-user-btn"><%- icon('plus') %><span>Add user</span></button>
+    </div>
   </div>
 
   <% if (error) { %><div class="alert alert-error"><%= error %></div><% } %>
@@ -20,11 +23,9 @@
     </div>
   <% } %>
 
-  <div class="grid grid-2">
-    <div>
-      <div class="card" style="padding:0;overflow:hidden">
-        <div class="table-wrap">
-          <table class="users-table">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="table-wrap">
+      <table class="users-table">
             <thead>
               <tr>
                 <th>User</th>
@@ -54,6 +55,10 @@
                   <td>
                     <span class="pill <%= u.role === 'admin' ? 'pill-admin' : '' %>"><%= u.role === 'admin' ? 'admin' : 'user' %></span>
                     <span class="pill <%= u.active ? 'pill-running' : 'pill-error' %>"><%= u.active ? 'active' : 'disabled' %></span>
+                    <span class="pill <%= u.totp_enabled ? 'pill-running' : 'pill-error' %>"
+                          title="<%= u.totp_enabled ? 'Two-factor authentication is on' : 'No second factor on this account' %>">
+                      2FA <%= u.totp_enabled ? 'on' : 'off' %>
+                    </span>
                   </td>
                   <td class="muted small nowrap">
                     <%= u.site_count %><%= u.site_quota ? ' of ' + u.site_quota : '' %>
@@ -67,6 +72,12 @@
                       <button class="btn btn-sm" data-reset-user="<%= u.id %>" title="Generate a new password">
                         <%- icon('key') %><span>Password</span>
                       </button>
+                      <% if (u.totp_enabled) { %>
+                        <button class="btn btn-sm" data-reset2fa-user="<%= u.id %>"
+                                title="Clear their second factor - for a lost phone">
+                          <%- icon('shield') %>
+                        </button>
+                      <% } %>
                       <% if (u.id !== user.id) { %>
                         <button class="btn btn-sm btn-danger" data-delete-user="<%= u.id %>" title="Delete this user">
                           <%- icon('trash') %>
@@ -78,46 +89,56 @@
               <% }) %>
             </tbody>
           </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="new-user-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add a user</h3>
+      <button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="new-user-modal"><%- icon('close') %></button>
+    </div>
+    <form method="post" action="/users">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field">
+          <label for="u-username">Username</label>
+          <input id="u-username" name="username" type="text" required autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="u-email">Email <span class="muted">(optional)</span></label>
+          <input id="u-email" name="email" type="email" autocomplete="off">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="u-role">Role</label>
+            <select id="u-role" name="role">
+              <option value="user">Standard user</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="u-quota">Site limit</label>
+            <input id="u-quota" name="site_quota" type="number" min="0" value="0">
+            <div class="hint">0 means no limit.</div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="u-password">Password</label>
+          <input id="u-password" name="password" type="text" autocomplete="off"
+                 placeholder="leave blank to generate one">
+          <div class="hint">
+            At least 10 characters if you set it yourself. Either way they must
+            change it at first login.
+          </div>
         </div>
       </div>
-    </div>
-
-    <div>
-      <div class="card">
-        <h2>Add a user</h2>
-        <form method="post" action="/users">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <div class="field">
-            <label for="u-username">Username</label>
-            <input id="u-username" name="username" type="text" required autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="u-email">Email (optional)</label>
-            <input id="u-email" name="email" type="email" autocomplete="off">
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="u-role">Role</label>
-              <select id="u-role" name="role">
-                <option value="user">Standard user</option>
-                <option value="admin">Administrator</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="u-quota">Site limit</label>
-              <input id="u-quota" name="site_quota" type="number" min="0" value="0">
-              <div class="hint">0 = unlimited.</div>
-            </div>
-          </div>
-          <div class="field">
-            <label for="u-password">Password</label>
-            <input id="u-password" name="password" type="text" autocomplete="off" placeholder="leave blank to generate one">
-            <div class="hint">At least 10 characters if you set it yourself. The user must change it at first login either way.</div>
-          </div>
-          <button class="btn btn-primary" type="submit">Create user</button>
-        </form>
+      <div class="modal-foot">
+        <button class="btn" type="button" data-close-modal="new-user-modal">Cancel</button>
+        <button class="btn btn-primary" type="submit"><%- icon('plus') %><span>Create user</span></button>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 
@@ -149,6 +170,12 @@
 </div>
 
 <script>
+  document.getElementById('add-user-btn').addEventListener('click', function () {
+    HP.openModal('new-user-modal');
+    var first = document.getElementById('u-username');
+    if (first) setTimeout(function () { first.focus(); }, 60);
+  });
+
   var editingId = null;
   // The whole row set, handed over as data rather than built into onclick
   // attributes. Markup that carries JSON has to be escaped exactly right to
@@ -162,6 +189,7 @@
       active: !!u.active,
       site_quota: u.site_quota,
       site_count: u.site_count,
+      totp_enabled: !!u.totp_enabled,
     };
   })) %>;
 
@@ -178,6 +206,27 @@
       resetPw(u.id, u.username);
     });
   });
+  document.querySelectorAll('[data-reset2fa-user]').forEach(function (b) {
+    b.addEventListener('click', async function () {
+      var u = userById(b.getAttribute('data-reset2fa-user'));
+      var ok = await HP.confirm({
+        title: 'Clear two-factor for ' + u.username + '?',
+        message: 'Their authenticator app and recovery codes stop working, and they sign in ' +
+          'with their password alone until they set it up again. Their current sessions end. ' +
+          'Only do this when you are sure who you are talking to - it is the one step that ' +
+          'turns two-factor back into one.',
+        confirmText: 'Clear two-factor',
+        tone: 'warn'
+      });
+      if (!ok) return;
+      try {
+        await HP.api('/users/' + u.id + '/reset-2fa', { body: {} });
+        HP.toast('Two-factor cleared for ' + u.username, 'ok');
+        setTimeout(function () { location.reload(); }, 600);
+      } catch (err) { HP.toast(err.message, 'error'); }
+    });
+  });
+
   document.querySelectorAll('[data-delete-user]').forEach(function (b) {
     b.addEventListener('click', function () {
       var u = userById(b.getAttribute('data-delete-user'));

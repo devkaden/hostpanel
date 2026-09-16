@@ -853,8 +853,11 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .user-name { font-weight: 600; }
 .avatar-lg { width: 34px; height: 34px; font-size: .92rem; }
 .dot-sep { opacity: .5; margin: 0 .25rem; }
-.users-table td { vertical-align: middle; }
+.users-table td { vertical-align: middle; padding: .85rem 1rem; }
+.users-table th { padding: .7rem 1rem; }
 .users-table .pill + .pill { margin-left: .3rem; }
+.users-table tbody tr + tr { border-top: 1px solid var(--border); }
+.users-table .file-actions { justify-content: flex-end; }
 
 /* On narrow screens the action bars carry too many words; the icons alone
    still say what each button does, and the title attribute fills the gap. */
@@ -866,3 +869,62 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   .tabs a { padding: .55rem .75rem; }
   .menu-name { display: none; }
 }
+
+/* ------------------------------------------------------- two-factor ----- */
+.code-input {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  letter-spacing: .38em;
+  text-align: center;
+  padding: .7rem .5rem;
+}
+.twofa-setup {
+  display: flex;
+  gap: 1.4rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.twofa-qr {
+  padding: .6rem;
+  background: #fff;           /* a QR must be dark-on-light to scan reliably */
+  border-radius: var(--radius-sm);
+  line-height: 0;
+}
+.twofa-key { flex: 1; min-width: 260px; }
+.recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: .5rem;
+  margin-top: .9rem;
+}
+.recovery-grid code {
+  display: block;
+  padding: .55rem .7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: .95rem;
+  letter-spacing: .04em;
+  text-align: center;
+}
+.btn-block { width: 100%; justify-content: center; }
+
+/* ------------------------------------------------- security checklist -- */
+.seclist { list-style: none; margin: .8rem 0 0; padding: 0; display: grid; gap: .55rem; }
+.seclist li {
+  display: flex;
+  gap: .7rem;
+  align-items: flex-start;
+  padding: .7rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.seclist-icon { display: flex; padding-top: .1rem; }
+.seclist li.ok .seclist-icon { color: var(--green); }
+.seclist li.bad { border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.seclist li.bad .seclist-icon { color: var(--red); }
+.seclist li.warn { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.seclist li.warn .seclist-icon { color: var(--amber); }
+.seclist li.info .seclist-icon { color: var(--muted); }

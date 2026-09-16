@@ -3,7 +3,7 @@
 const express = require('express');
 
 const config = require('../config');
-const { allSettings, setSetting, getSetting, audit } = require('../db');
+const { db, allSettings, setSetting, getSetting, audit } = require('../db');
 const sites = require('../sites');
 const templates = require('../templates');
 const auth = require('../auth');
@@ -37,9 +37,114 @@ router.get(
       portRange: sites.portRange(),
       templates: templates.list(),
       effectivePanelPort: config.port,
+      security: securityReview(),
     });
   })
 );
+
+/**
+ * A plain list of what is and is not in place, for a panel that faces outward.
+ *
+ * Not a score and not a badge. Each entry says what the current state is and
+ * what it means, so the decision stays with the person running it - a panel
+ * reachable only over a VPN genuinely does not need HSTS, and telling them
+ * otherwise teaches them to ignore the list.
+ */
+function securityReview() {
+  const users = db
+    .prepare('SELECT username, role, totp_enabled, active FROM users WHERE active = 1')
+    .all();
+  const admins = users.filter((u) => u.role === 'admin');
+  const adminsWithout2fa = admins.filter((u) => !u.totp_enabled);
+  const policy = getSetting('require_2fa') || 'off';
+
+  const items = [];
+
+  items.push({
+    id: 'twofactor',
+    label: 'Two-factor authentication',
+    ok: policy !== 'off' && adminsWithout2fa.length === 0,
+    warn: policy !== 'off' && adminsWithout2fa.length > 0,
+    detail:
+      policy === 'off'
+        ? 'Not required. Anyone who learns a password is in.'
+        : adminsWithout2fa.length
+          ? `Required, but ${adminsWithout2fa.length} administrator account(s) have not set it up yet: ` +
+            adminsWithout2fa.map((u) => u.username).join(', ')
+          : `Required for ${policy === 'all' ? 'everyone' : 'administrators'}, and every account has it.`,
+  });
+
+  items.push({
+    id: 'cookies',
+    label: 'Secure cookies',
+    ok: config.secureCookies,
+    detail: config.secureCookies
+      ? 'Session cookies are marked Secure, so they are never sent over plain HTTP.'
+      : 'Session cookies are not marked Secure. Set SECURE_COOKIES=true once the panel is served over HTTPS, ' +
+        'otherwise a single plain-HTTP request can expose the session.',
+  });
+
+  items.push({
+    id: 'proxy',
+    label: 'Client addresses',
+    ok: !config.trustProxy || config.secureCookies,
+    warn: config.trustProxy && !config.secureCookies,
+    detail: config.trustProxy
+      ? 'TRUST_PROXY is on, so the address in X-Forwarded-For is believed. Correct behind your own reverse ' +
+        'proxy; wrong if the panel is also reachable directly, because then anyone can forge the address ' +
+        'the rate limiter counts against.'
+      : 'TRUST_PROXY is off, so rate limiting counts the connecting address. Turn it on only if the panel ' +
+        'is reachable exclusively through your reverse proxy.',
+  });
+
+  items.push({
+    id: 'secret',
+    label: 'Session secret',
+    ok: config.sessionSecret !== 'change-me-in-dotenv' && config.sessionSecret.length >= 32,
+    detail:
+      config.sessionSecret === 'change-me-in-dotenv'
+        ? 'Still the built-in default. Anyone with the source can forge a session cookie. Set SESSION_SECRET.'
+        : config.sessionSecret.length < 32
+          ? 'Shorter than 32 characters. Generate a long random one.'
+          : 'Set to something of its own.',
+  });
+
+  items.push({
+    id: 'hostshell',
+    label: 'Host shell',
+    ok: getSetting('allow_host_shell') !== '1',
+    warn: getSetting('allow_host_shell') === '1',
+    detail:
+      getSetting('allow_host_shell') === '1'
+        ? 'Enabled. Any administrator gets a root shell on this machine through the browser. Worth turning ' +
+          'off if the panel is reachable from outside.'
+        : 'Disabled.',
+  });
+
+  items.push({
+    id: 'passwords',
+    label: 'Password length',
+    ok: parseInt(getSetting('min_password_length') || '10', 10) >= 12,
+    detail: `Minimum ${getSetting('min_password_length') || '10'} characters. Twelve or more is a sensible ` +
+      'floor for an account reachable from the internet.',
+  });
+
+  items.push({
+    id: 'docker',
+    label: 'What an account can reach',
+    ok: null,
+    detail:
+      'Every administrator can reach the Docker socket through this panel, which is equivalent to root on ' +
+      'this host. Give administrator only to people you would give root to, and use standard accounts for ' +
+      'everyone else.',
+  });
+
+  return {
+    items,
+    failing: items.filter((i) => i.ok === false).length,
+    warning: items.filter((i) => i.warn).length,
+  };
+}
 
 router.post(
   '/settings',
@@ -50,6 +155,15 @@ router.post(
     setSetting('panel_title', String(body.panel_title || 'HostPanel').slice(0, 60));
     setSetting('host_ip', String(body.host_ip || '').trim());
     setSetting('allow_host_shell', body.allow_host_shell ? '1' : '0');
+
+    // Security.
+    const policy = ['off', 'admins', 'all'].includes(body.require_2fa) ? body.require_2fa : 'off';
+    setSetting('require_2fa', policy);
+    const minLen = parseInt(body.min_password_length, 10);
+    setSetting(
+      'min_password_length',
+      Number.isInteger(minLen) && minLen >= 8 && minLen <= 128 ? String(minLen) : '10'
+    );
 
     // Appearance.
     const theme = ['system', 'dark', 'light'].includes(body.theme) ? body.theme : 'system';
