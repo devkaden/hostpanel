@@ -621,15 +621,44 @@
           });
           var cert = res.cert;
 
+          /*
+           * A certificate that already verifies needs no pin, and pinning one
+           * would break the panel at its next renewal - silently, weeks later.
+           */
+          if (cert.alreadyTrusted === true) {
+            say('ok',
+              '<strong>Nothing to do here.</strong> That certificate is signed by an authority ' +
+              'this machine already trusts (' + HP.escapeHtml(cert.issuer) + '), so the panel ' +
+              'verifies it the ordinary way.' +
+              (cert.daysLeft !== null && cert.daysLeft < 120
+                ? ' It is also short-lived and will be replaced in about ' + cert.daysLeft +
+                  ' days, which is exactly the kind of certificate that must not be pinned.'
+                : ''));
+            trustBtn.disabled = false;
+            trustBtn.removeAttribute('data-busy');
+            return;
+          }
+
           // Shown before it is trusted, never after: the fingerprint is the
           // whole point, and it is only worth anything if somebody looks.
+          var warning = '';
+          if (!cert.selfSigned) {
+            warning = '\n\nNote: this certificate was not signed by itself, so it was probably ' +
+              'issued by an authority and will be replaced when it renews. Pinning it means the ' +
+              'panel stops connecting on that day.';
+          } else if (cert.daysLeft !== null && cert.daysLeft < 60) {
+            warning = '\n\nNote: it expires in ' + cert.daysLeft + ' days. The panel will stop ' +
+              'connecting then until you trust the replacement.';
+          }
+
           var ok = await HP.confirm({
             title: 'Trust this certificate?',
-            message: 'NPMplus is using:\n\n' + cert.subject +
+            message: 'NPMplus at that address is using:\n\n' + cert.subject +
+              '\nIssued by: ' + cert.issuer +
               '\nFingerprint: ' + cert.fingerprint +
               '\nExpires: ' + cert.validTo + '\n\n' +
-              'Check that fingerprint against the one NPMplus shows. From then on the panel ' +
-              'accepts this certificate and no other.',
+              'Check that fingerprint against the one your browser shows for NPMplus. From then ' +
+              'on the panel accepts this certificate and no other.' + warning,
             confirmText: 'Trust it'
           });
           if (ok) await save(cert.pem);

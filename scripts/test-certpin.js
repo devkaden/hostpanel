@@ -55,11 +55,29 @@ function selfSigned(name) {
   return { key: fs.readFileSync(key), cert: fs.readFileSync(cert, 'utf8') };
 }
 
+/**
+ * A certificate with no subject at all, which is what Let's Encrypt issues now
+ * - the name lives only in the subjectAltName. Node reports `subject` as
+ * undefined for these, and reading it as a string was a real crash in front of
+ * a real user: "Cannot read properties of undefined (reading 'split')".
+ */
+function sanOnly(name) {
+  const key = path.join(TMP, `${name}.san.key`);
+  const cert = path.join(TMP, `${name}.san.crt`);
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-keyout', key, '-out', cert,
+    '-days', '2', '-nodes', '-subj', '/', '-addext', `subjectAltName=DNS:${name}`,
+  ], { stdio: 'ignore' });
+  return { key: fs.readFileSync(key), cert: fs.readFileSync(cert, 'utf8') };
+}
+
 let real;
 let impostor;
+let subjectless;
 try {
   real = selfSigned('npmplus.local');
   impostor = selfSigned('npmplus.local'); // same name, different key
+  subjectless = sanOnly('npm.example.net');
 } catch (err) {
   console.log('  SKIP  openssl is not available here\n');
   process.exit(0);
@@ -90,6 +108,26 @@ console.log('\nreading a certificate');
   const messy = `Here you go:\n\n${real.cert}\n\nthanks`;
   check('a certificate pasted with text around it still works',
     certpin.fromPem(messy).fingerprint === details.fingerprint);
+}
+
+console.log('\na certificate with no subject, which is what is issued now');
+{
+  let threw = null;
+  let details = null;
+  try { details = certpin.describe(subjectless.cert); } catch (err) { threw = err; }
+
+  check('reading it does not throw', !threw, threw && threw.message);
+  check('the name comes from the subjectAltName instead',
+    details && details.subject === 'npm.example.net', details && details.subject);
+  check('and so does the name to verify against',
+    details && details.servername === 'npm.example.net', details && details.servername);
+  check('the issuer says something rather than "undefined"',
+    details && details.issuer && !/undefined/.test(details.issuer), details && details.issuer);
+  check('it is still recognised as self-signed',
+    details && details.selfSigned === true,
+    'two absent fields compare equal, so this cannot be a string comparison');
+  check('and it reports how long is left', details && typeof details.daysLeft === 'number',
+    String(details && details.daysLeft));
 }
 
 /* ------------------------------------------------------ what it stores -- */
@@ -170,6 +208,18 @@ console.log('\nwhat gets stored');
     /SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME/.test(String(swapped.error)), String(swapped.error));
 
   certpin.forget();
+
+  // 5. A certificate that already verifies must not be offered for pinning.
+  const captured2 = await certpin.capture(url);
+  check('capture reports whether the address already verifies',
+    captured2 && captured2.alreadyTrusted === false,
+    String(captured2 && captured2.alreadyTrusted));
+  check('an unreachable address is reported as unknown, not as untrusted',
+    (await certpin.verifiesNormally('https://127.0.0.1:1/')) === null,
+    'those are different answers and only one of them is actionable');
+  check('a plain http address has no certificate question to answer',
+    (await certpin.verifiesNormally('http://127.0.0.1/')) === null);
+
   server.close();
 
   /* ------------------------------------------------------- the wiring -- */
@@ -203,6 +253,11 @@ console.log('\nwhat gets stored');
       !/npmplus_insecure/.test(view + read('src/views/setup.ejs')));
     check('the fingerprint is shown before it is trusted',
       /Trust this certificate\?/.test(view) && /Check that fingerprint/.test(view));
+    check('a certificate that needs no pin is not offered one',
+      /cert\.alreadyTrusted === true/.test(view) && /Nothing to do here/.test(view),
+      'pinning a renewing certificate breaks the panel weeks later, silently');
+    check('and pinning a short-lived one comes with the warning',
+      /stops connecting on that day/.test(view) && /cert\.daysLeft/.test(view));
   }
 
   fs.rmSync(TMP, { recursive: true, force: true });

@@ -26,6 +26,7 @@
  */
 
 const crypto = require('crypto');
+const https = require('https');
 const { execFile } = require('child_process');
 const { URL } = require('url');
 
@@ -44,24 +45,65 @@ const PEM_RE = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/;
  */
 function describe(pem) {
   const cert = new crypto.X509Certificate(pem);
-  const cn = (cert.subject.split('\n').find((line) => line.startsWith('CN=')) || '').slice(3);
+
+  /*
+   * Every field here can be absent, and one of them usually is.
+   *
+   * A certificate issued by Let's Encrypt today carries no subject at all -
+   * the name it is for lives only in the subjectAltName, and Node reports
+   * `subject` as undefined rather than as an empty string. Reading it as a
+   * string is what broke the first version of this: "Cannot read properties
+   * of undefined (reading 'split')" in front of somebody trying to connect
+   * their own reverse proxy.
+   */
+  const dnValue = (dn, field) => {
+    const line = String(dn || '')
+      .split('\n')
+      .find((entry) => entry.startsWith(`${field}=`));
+    return line ? line.slice(field.length + 1) : '';
+  };
+
   const sanDns = String(cert.subjectAltName || '')
     .split(',')
     .map((part) => part.trim())
     .filter((part) => part.startsWith('DNS:'))
     .map((part) => part.slice(4));
 
+  const cn = dnValue(cert.subject, 'CN');
+  const issuerCn = dnValue(cert.issuer, 'CN') || dnValue(cert.issuer, 'O');
+
+  /*
+   * Self-signed is asked of the certificate rather than guessed by comparing
+   * two strings: with no subject and no issuer, comparing them says "equal"
+   * and every public certificate looks self-signed.
+   */
+  let selfSigned = false;
+  try {
+    selfSigned = cert.checkIssued(cert);
+  } catch (_) {
+    selfSigned = Boolean(cert.subject) && cert.subject === cert.issuer;
+  }
+
+  const validTo = cert.validTo || '';
+  const expiresAt = Date.parse(validTo);
+  const daysLeft = Number.isFinite(expiresAt)
+    ? Math.round((expiresAt - Date.now()) / 86400000)
+    : null;
+
   return {
-    pem: pem.trim() + '\n',
+    pem: String(pem).trim() + '\n',
     fingerprint: cert.fingerprint256,
-    subject: cn || cert.subject.replace(/\n/g, ', '),
-    issuer: (cert.issuer.split('\n').find((line) => line.startsWith('CN=')) || cert.issuer)
-      .replace(/^CN=/, '')
-      .replace(/\n/g, ', '),
-    validFrom: cert.validFrom,
-    validTo: cert.validTo,
-    expired: Date.parse(cert.validTo) < Date.now(),
-    selfSigned: cert.subject === cert.issuer,
+    // What to call it: the name it is actually for, then the subject, then an
+    // honest admission rather than "undefined".
+    subject: cn || sanDns[0] || String(cert.subject || '').replace(/\n/g, ', ') || '(no name)',
+    issuer: issuerCn || String(cert.issuer || '').replace(/\n/g, ', ') || '(unknown issuer)',
+    validFrom: cert.validFrom || '',
+    validTo,
+    daysLeft,
+    expired: daysLeft !== null && daysLeft < 0,
+    selfSigned,
+    // The name to verify against. SAN first, because that is where a modern
+    // certificate keeps it and what Node's hostname check reads.
     servername: sanDns[0] || cn || '',
   };
 }
@@ -113,14 +155,19 @@ function capture(urlString, timeoutMs = 10000) {
       'openssl',
       args,
       { timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' },
-      (err, stdout) => {
+      async (err, stdout) => {
         const match = String(stdout || '').match(PEM_RE);
         if (match) {
+          let details;
           try {
-            return resolve(describe(match[0]));
+            details = describe(match[0]);
           } catch (parseErr) {
             return reject(new Error(`The certificate could not be read: ${parseErr.message}`));
           }
+          // Reported with the certificate, so the page can say "nothing to do
+          // here" instead of offering a pin that would expire into a fault.
+          details.alreadyTrusted = await verifiesNormally(urlString);
+          return resolve(details);
         }
         if (err && err.code === 'ENOENT') {
           return reject(
@@ -138,6 +185,61 @@ function capture(urlString, timeoutMs = 10000) {
         );
       }
     );
+  });
+}
+
+
+/**
+ * Whether an address already presents a certificate this machine trusts.
+ *
+ * Asked before offering to pin anything, because pinning a certificate that
+ * did not need pinning is a trap with a delay on it: a Let's Encrypt
+ * certificate is replaced every couple of months, and a pin taken today stops
+ * matching at the first renewal - by which time nobody connects the broken
+ * reverse proxy to a button they pressed in the summer.
+ *
+ * Answers null when the address could not be reached at all, which is a
+ * different thing from "not trusted" and should not be reported as one.
+ */
+function verifiesNormally(urlString, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(urlString);
+    } catch (_) {
+      return resolve(null);
+    }
+    if (target.protocol !== 'https:') return resolve(null);
+
+    const req = https.request(
+      {
+        host: target.hostname,
+        port: target.port || 443,
+        path: '/',
+        method: 'HEAD',
+        timeout: timeoutMs,
+        // No ca and no servername override: this is deliberately the plain
+        // question, "does this verify the way any other client would".
+      },
+      (res) => {
+        res.resume();
+        resolve(true);
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('timed out')));
+    req.on('error', (err) => {
+      const certFailure = [
+        'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'SELF_SIGNED_CERT_IN_CHAIN',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+        'CERT_HAS_EXPIRED',
+        'ERR_TLS_CERT_ALTNAME_INVALID',
+        'CERT_UNTRUSTED',
+        'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+      ].includes(err.code);
+      resolve(certFailure ? false : null);
+    });
+    req.end();
   });
 }
 
@@ -186,4 +288,6 @@ function tlsOptionsFor(hostname) {
   };
 }
 
-module.exports = { capture, describe, fromPem, stored, trust, forget, tlsOptionsFor };
+module.exports = {
+  capture, describe, fromPem, stored, trust, forget, tlsOptionsFor, verifiesNormally,
+};

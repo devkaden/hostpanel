@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-623-3fbf7f" alt="623 tests">
+  <img src="https://img.shields.io/badge/tests-634-3fbf7f" alt="634 tests">
 </p>
 
 ---
@@ -123,6 +123,10 @@ fingerprint to compare, and pins it: from then on the panel accepts that
 certificate and no other, with verification left on. A swapped certificate on
 the same address fails the handshake, which is the part that "accept anything"
 never gave you.
+
+If NPMplus already has a certificate your machine trusts, the panel says so and
+declines to pin it - a renewing certificate would break the connection weeks
+later, on a day nobody connects to a button pressed in the summer.
 
 Tick **Manage reverse proxy hosts automatically** and creating a site with a
 domain will, in one go: build the container, create the proxy host, request a
