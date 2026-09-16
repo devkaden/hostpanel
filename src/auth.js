@@ -265,6 +265,18 @@ function csrf(req, res, next) {
   const safe = ['GET', 'HEAD', 'OPTIONS'];
   if (safe.includes(req.method)) return next();
 
+  /*
+   * The preview proxy is exempt, and has to be.
+   *
+   * A CSRF token protects the panel's own actions. Nothing under /preview/ is
+   * one: the request is forwarded to the user's own site with every panel
+   * header stripped, and what authorises it is the capability token in the
+   * path. Requiring a token here would only mean that submitting a form inside
+   * a previewed site - a search box, a login form the user is testing - came
+   * back as "request rejected".
+   */
+  if (req.path.startsWith('/preview/')) return next();
+
   const supplied = String(
     req.get('x-csrf-token') || (req.body && req.body._csrf) || req.query._csrf || ''
   );

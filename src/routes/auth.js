@@ -42,7 +42,27 @@ function safeNext(value) {
   if (typeof value !== 'string' || !value.startsWith('/')) return '/';
   if (value.startsWith('//') || value.startsWith('/\\')) return '/';
   if (/[\r\n]/.test(value)) return '/';
-  return value;
+  if (value.length > 512) return '/';
+
+  /*
+   * Rebuilt from a parse rather than passed through after a check.
+   *
+   * The checks above catch the forms that are known to matter, but "it does
+   * not look like any attack I thought of" is a weaker claim than "the only
+   * thing that leaves here is a path and a query from a URL that resolved to
+   * this origin". Resolving against a fixed base and then keeping only the
+   * pieces that belong to this site means a value that somehow still points
+   * elsewhere cannot survive the trip - it has to resolve here first, and then
+   * the origin is discarded anyway.
+   */
+  try {
+    const parsed = new URL(value, 'http://hostpanel.invalid');
+    if (parsed.origin !== 'http://hostpanel.invalid') return '/';
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path.startsWith('/') && !path.startsWith('//') ? path : '/';
+  } catch (_) {
+    return '/';
+  }
 }
 
 router.get('/login', (req, res) => {

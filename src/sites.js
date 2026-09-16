@@ -825,6 +825,8 @@ async function deleteSite(siteId, { deleteFiles = true } = {}) {
 
   db.prepare('DELETE FROM sites WHERE id = ?').run(siteId);
   clearProgress(siteId);
+  // Any preview token still in someone's open tab is now pointing at nothing.
+  require('./preview').revokeTokensFor(siteId);
   return true;
 }
 
@@ -862,6 +864,35 @@ async function statusFor(site) {
   };
 }
 
+
+/**
+ * True for an address on this machine or this network.
+ *
+ * Used to decide whether skipping certificate verification is defensible. A
+ * homelab site on 192.168.x with a certificate the panel issued itself is the
+ * case this exists for; a name that resolves out on the internet is not, and
+ * there "the certificate is wrong" is a real answer rather than noise to
+ * suppress.
+ */
+function isPrivateHost(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+  if (host === '::1' || host.startsWith('fc') || host.startsWith('fd')) return true; // IPv6 loopback / ULA
+
+  const parts = host.split('.');
+  if (parts.length !== 4 || parts.some((p) => !/^\d{1,3}$/.test(p))) return false;
+  const [a, b] = parts.map(Number);
+  if (parts.some((p) => Number(p) > 255)) return false;
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+  );
+}
+
 /**
  * Probes an arbitrary URL for the same two answers as probeSite().
  *
@@ -885,10 +916,17 @@ function probeUrl(target, timeoutMs = 4000) {
         path: parsed.pathname || '/',
         method: 'HEAD',
         timeout: timeoutMs,
-        // The panel is asking about its own sites, and a homelab certificate
-        // that has not renewed yet should surface as "this header blocks
-        // framing", not as a probe that silently failed.
-        rejectUnauthorized: false,
+        /*
+         * Certificate checking is skipped only on this machine and this
+         * network, where a site may legitimately be serving something
+         * self-signed and the useful answer is "this header blocks framing"
+         * rather than a probe that silently failed.
+         *
+         * It used to be skipped for every address. That made the probe treat a
+         * genuinely broken certificate on a public domain as fine, which is
+         * the one place the panel could have noticed it.
+         */
+        rejectUnauthorized: !isPrivateHost(parsed.hostname),
         headers: { 'User-Agent': 'HostPanel-preview-probe' },
       },
       (res) => {
@@ -986,6 +1024,7 @@ async function diskUsage(site) {
 
 module.exports = {
   NAME_RE,
+  isPrivateHost,
   DOMAIN_RE,
   siteDirs,
   getSite,

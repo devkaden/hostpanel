@@ -31,13 +31,14 @@ const https = require('https');
 const { URL } = require('url');
 
 const { getSetting } = require('./db');
+const { stripTrailingSlashes } = require('./netutil');
 
 // Session state: a Bearer token (legacy NPM) and/or a cookie jar (NPMplus).
 let tokenCache = { token: null, cookies: null, expiresAt: 0, forUrl: '' };
 
 function cfg() {
   return {
-    url: (getSetting('npmplus_url') || '').replace(/\/+$/, ''),
+    url: stripTrailingSlashes(getSetting('npmplus_url')),
     email: getSetting('npmplus_email'),
     password: getSetting('npmplus_password'),
     leEmail: getSetting('npmplus_le_email') || getSetting('npmplus_email'),

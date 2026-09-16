@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-493-3fbf7f" alt="493 tests">
+  <img src="https://img.shields.io/badge/tests-572-3fbf7f" alt="572 tests">
 </p>
 
 ---
@@ -55,8 +55,9 @@ sudo ./install.sh
 ```
 
 The installer sets up Node.js 22, Docker Engine, the panel and a systemd unit,
-then prints the generated admin password (also written to
-`/opt/hostpanel/data/initial-admin-password.txt`).
+then shows the generated admin password. It is written to
+`/opt/hostpanel/data/initial-admin-password.txt` (mode `0600`) and never to the
+service log - delete that file once you have signed in and changed it.
 
 Open `http://<host-ip>:8890` and sign in.
 
@@ -196,6 +197,7 @@ standard account.
 | Two-factor | TOTP (RFC 6238), optional or required by role, single-use recovery codes |
 | Sessions | httpOnly, SameSite=Lax, server-side store; invalidated on any credential change |
 | Throttling | 8 failures per user+IP, 20 per account, 30 per IP, persisted so a restart does not clear it |
+| Rate limiting | Every request capped per account (per address before sign-in), in three buckets, tunable in Settings |
 | CSRF | Double-submit token on every state-changing request |
 | Files | Path traversal, zip-slip and symlink escapes rejected; every path resolved against the site root |
 | Headers | CSP, `nosniff`, `frame-ancestors 'none'`, no referrer |
@@ -267,6 +269,16 @@ If the frame is blank with a console message about `frame-ancestors`, the policy
 naming it is the one to look at: the panel sends `frame-ancestors 'self'` on
 `/preview/` and `'none'` everywhere else, so a `'none'` on a preview response is
 coming from something in front of the panel.
+
+**Why the preview URL has a token in it.** The frame is sandboxed without
+`allow-same-origin`, which is what keeps a previewed site walled off from the
+panel around it — and it also gives that document an opaque origin, so the
+browser treats everything it asks for as cross-site and withholds the
+`SameSite=Lax` session cookie. The page arrived and every image in it came back
+as a redirect to the sign-in form. The preview carries a short-lived token in
+its path instead, minted when the site page is rendered; the `<base>` tag and
+the URL rewriting put it in front of every path the page resolves. A token
+grants one thing: looking at one site, for two hours.
 
 </details>
 
@@ -380,6 +392,7 @@ npm test        # everything below
 | `npm run test:preview` | URL rewriting and a real proxied request |
 | `npm run test:alerts` | Alert thresholds, de-duplication and the wiring |
 | `npm run test:ui` | Icon names, card markup and stylesheet agreement |
+| `npm run test:ratelimit` | The limiter's buckets and keys, and the rest of the scan findings |
 | `npm run test:upload-live` | Real uploads and downloads against a running panel |
 
 Everything except `test:upload-live` runs with no dependencies installed and

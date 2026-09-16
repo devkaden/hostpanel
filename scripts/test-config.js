@@ -242,7 +242,15 @@ const tpl = require(path.join(APP, 'site-templates.js'));
 
     // Mirrors the handler in src/routes/files.js.
     const server = http.createServer(async (req, res) => {
-      const name = decodeURIComponent((req.url.split('path=')[1] || 'f').split('&')[0]);
+      /*
+       * basename, because this stands in for the real handler and the real
+       * handler resolves against the site root. A test double that happily
+       * writes "../../etc/whatever" is not mirroring the thing it claims to
+       * mirror, and it is the kind of example that gets copied.
+       */
+      const name = path.basename(
+        decodeURIComponent((req.url.split('path=')[1] || 'f').split('&')[0])
+      ) || 'f';
       const tmp = path.join(uploadDir, 'tmp-' + Math.random().toString(16).slice(2));
       let written = 0;
       let tooBig = false;
@@ -260,7 +268,11 @@ const tpl = require(path.join(APP, 'site-templates.js'));
 
       try {
         await pipeline(req, counter, fs.createWriteStream(tmp));
-        fs.renameSync(tmp, path.join(uploadDir, name));
+        const dest = path.resolve(uploadDir, name);
+        if (!dest.startsWith(path.resolve(uploadDir) + path.sep)) {
+          throw new Error('destination escapes the upload directory');
+        }
+        fs.renameSync(tmp, dest);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, bytes: written }));
       } catch (err) {
@@ -431,13 +443,10 @@ console.log('\nsystem packages and unreachable apps');
    * else. It points at the panel now, so none of it is needed and none of it
    * should come back.
    */
-  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'sites.js'), 'utf8');
-  check('there is a preview proxy route', /'\/preview\/:id/.test(routes));
-  check('it is behind the site access check', /loadSite,/.test(
-    routes.slice(routes.indexOf("'/preview/:id"), routes.indexOf("'/preview/:id") + 400)
-  ));
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'preview.js'), 'utf8');
+  check('there is a preview proxy route', /'\/preview\/:token/.test(routes));
   check('the frame points at the panel, not the site',
-    /src="\/preview\/<%= site\.id %>\/"/.test(view));
+    /src="\/preview\/<%= previewToken %>\/"/.test(view));
 
   // Same-origin is what makes the preview work and also what would let a
   // site's scripts reach into the panel. The sandbox withholds it.

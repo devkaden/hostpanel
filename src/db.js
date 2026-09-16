@@ -205,6 +205,9 @@ const SETTING_DEFAULTS = {
   npmplus_insecure: '0',
   host_ip: config.hostIp || '',
   panel_title: 'HostPanel',
+
+  // How hard the request limiter squeezes: relaxed | standard | strict.
+  rate_limit_profile: 'standard',
   allow_host_shell: '1',
 
   // Two-factor policy: off | admins | all.

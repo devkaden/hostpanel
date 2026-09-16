@@ -12,6 +12,7 @@ const { db, getSetting, setSetting, getNumericSetting, allSettings } = require('
 const SqliteStore = require('./session-store');
 const auth = require('./auth');
 const alerts = require('./alerts');
+const rateLimit = require('./ratelimit');
 const docker = require('./docker');
 const npmplus = require('./npmplus');
 const cron = require('./cron');
@@ -77,6 +78,10 @@ app.locals.twoFactorOn = false;
 app.locals.hostShell = false;
 app.locals.flash = null;
 app.locals.alertCount = 0;
+// The layout calls this, so it has to exist before any middleware that can
+// render - the rate limiter answers 429 with the error page, and that runs
+// before the per-request locals are set.
+app.locals.jsonScript = jsonForScript;
 app.locals.siteTypes = config.siteTypes;
 
 // xterm.js is served from node_modules so the panel works on an offline LAN.
@@ -106,6 +111,19 @@ const sessionMiddleware = session({
   },
 });
 app.use(sessionMiddleware);
+
+/*
+ * Rate limiting, before any route that does work.
+ *
+ * After the session middleware because the limit is per account where there is
+ * one - otherwise everybody behind one address, or behind the reverse proxy if
+ * TRUST_PROXY is wrong, shares a single allowance.
+ *
+ * Before the routes because the point is to answer 429 without touching the
+ * disk or the Docker socket.
+ */
+app.use(rateLimit.build());
+
 /*
  * Common template locals, set before anything that can render a page.
  *
@@ -269,6 +287,18 @@ function jsonForScript(value) {
  * Routes
  * ------------------------------------------------------------------ */
 app.use(require('./routes/auth'));
+
+/*
+ * The preview proxy, before the sign-in check.
+ *
+ * Not an oversight: the frame's document has an opaque origin, so the browser
+ * withholds the session cookie from everything inside it. Behind requireAuth
+ * the page rendered and every image in it was answered with a redirect to the
+ * sign-in form. It carries its own short-lived token instead, minted for
+ * someone already signed in - see src/routes/preview.js.
+ */
+app.use(require('./routes/preview'));
+
 app.use(auth.requireAuth);
 
 /*
@@ -337,16 +367,27 @@ app.use((err, req, res, next) => {
 async function boot() {
   const bootstrap = auth.ensureBootstrapAdmin();
   if (bootstrap) {
+    /*
+     * The password goes to a file, not to the log.
+     *
+     * It used to be printed here, which is convenient exactly once and then
+     * lives forever in the journal: readable by anyone who can read logs,
+     * copied into every log shipper and every "here is my output" paste. The
+     * file next to it is 0600 and can be deleted the moment it has been used.
+     */
+    const passwordFile = path.join(config.dataDir, 'initial-admin-password.txt');
     const banner = '='.repeat(62);
     console.log(`\n${banner}`);
     console.log('  HostPanel first run - administrator account created');
     console.log(`  username: ${bootstrap.username}`);
-    console.log(`  password: ${bootstrap.password}`);
-    console.log('  You will be asked to change this on first login.');
+    console.log(`  password: written to ${passwordFile}`);
+    console.log(`           read it with: sudo cat ${passwordFile}`);
+    console.log('  You will be asked to change it on first login; delete that');
+    console.log('  file once you have.');
     console.log(`${banner}\n`);
     try {
       require('fs').writeFileSync(
-        path.join(config.dataDir, 'initial-admin-password.txt'),
+        passwordFile,
         `username: ${bootstrap.username}\npassword: ${bootstrap.password}\n`,
         { mode: 0o600 }
       );

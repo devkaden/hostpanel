@@ -16,14 +16,15 @@
     "test:npmplus": "node scripts/test-npmplus.js",
     "reset-admin": "node scripts/reset-admin.js",
     "test:security": "node scripts/test-security.js",
-    "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js && node scripts/test-config.js && node scripts/test-uploads.js && node scripts/test-totp.js && node scripts/test-preview.js && node scripts/test-alerts.js && node scripts/test-ui.js",
+    "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js && node scripts/test-config.js && node scripts/test-uploads.js && node scripts/test-totp.js && node scripts/test-preview.js && node scripts/test-alerts.js && node scripts/test-ui.js && node scripts/test-ratelimit.js",
     "test:config": "node scripts/test-config.js",
     "test:uploads": "node scripts/test-uploads.js",
     "test:upload-live": "node scripts/upload-selftest.js",
     "test:totp": "node scripts/test-totp.js",
     "test:preview": "node scripts/test-preview.js",
     "test:alerts": "node scripts/test-alerts.js",
-    "test:ui": "node scripts/test-ui.js"
+    "test:ui": "node scripts/test-ui.js",
+    "test:ratelimit": "node scripts/test-ratelimit.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
@@ -38,6 +39,7 @@
     "dotenv": "^16.4.7",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
     "express-session": "^1.18.1",
     "qrcode": "^1.5.4",
     "ws": "^8.18.0"

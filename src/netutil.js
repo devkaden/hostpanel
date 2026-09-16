@@ -44,4 +44,21 @@ function humanBytes(bytes) {
   return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }
 
-module.exports = { detectHostIp, humanBytes };
+
+/**
+ * Removes trailing slashes from a URL without a regular expression.
+ *
+ * `/\/+$/` looks harmless and is not: matching a run of slashes that has to
+ * end at the end of the string makes the engine retry from every position, so
+ * a pasted string of 50,000 slashes becomes seconds of CPU inside a request.
+ * A loop cannot backtrack. The length cap is the same idea from the other end -
+ * no URL anyone means to type is longer than this.
+ */
+function stripTrailingSlashes(value, maxLength = 2048) {
+  let out = String(value == null ? '' : value).trim().slice(0, maxLength);
+  let end = out.length;
+  while (end > 0 && out.charCodeAt(end - 1) === 47 /* "/" */) end -= 1;
+  return out.slice(0, end);
+}
+
+module.exports = { stripTrailingSlashes, detectHostIp, humanBytes };

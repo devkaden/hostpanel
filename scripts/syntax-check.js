@@ -102,12 +102,23 @@ walk(__dirname);
  */
 for (const file of ejsFiles) {
   const src = fs.readFileSync(file, 'utf8');
-  const blocks = src.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g) || [];
+  /*
+   * Matches every <script> tag, then decides. The single regex this replaces -
+   * `<script(?![^>]*\bsrc=)[^>]*>` - tried to do both jobs at once and got
+   * both slightly wrong: `[^>]*` stops at the first ">" even inside an
+   * attribute value, and the closing tag was matched case-sensitively with no
+   * room for `</script >`. A tag that slipped past either one was skipped in
+   * silence, which for a syntax checker means "passed".
+   */
+  const blocks = (src.match(/<script\b[\s\S]*?<\/script\s*>/gi) || []).filter((block) => {
+    const openTag = (block.match(/^<script\b[\s\S]*?>/i) || [''])[0];
+    return !/\ssrc\s*=/i.test(openTag);
+  });
 
   blocks.forEach((block, index) => {
     const body = block
-      .replace(/^<script[^>]*>/, '')
-      .replace(/<\/script>$/, '')
+      .replace(/^<script\b[\s\S]*?>/i, '')
+      .replace(/<\/script\s*>$/i, '')
       // Output tags become a literal; control tags carry JS that stays.
       .replace(/<%[-=]\s*([\s\S]*?)\s*-?%>/g, '0')
       .replace(/<%_?\s*([\s\S]*?)\s*_?%>/g, '$1');

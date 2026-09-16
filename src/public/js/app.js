@@ -491,7 +491,10 @@
   function initSiteActions() {
     var bar = document.querySelector('[data-site-actions]');
     if (!bar) return;
-    var siteId = bar.getAttribute('data-site-actions');
+    // Read out of the document, so it is treated as input: digits only, and
+    // nothing happens without them. Everything below builds a URL out of this.
+    var siteId = String(bar.getAttribute('data-site-actions') || '').replace(/[^0-9]/g, '');
+    if (!siteId) return;
 
     async function refreshState() {
       try {

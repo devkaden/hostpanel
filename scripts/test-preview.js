@@ -122,6 +122,66 @@ console.log('\nCSS rewriting');
   check('a relative url is untouched', out.includes('url(rel/d.png)'));
 }
 
+console.log('\npreview tokens');
+{
+  const token = preview.issueToken(7, 3);
+  check('a token is minted', typeof token === 'string' && token.length >= 24, token);
+  check('it is not the site id', !/^\d+$/.test(token),
+    'a guessable preview URL is a preview anyone can open');
+  check('two are never the same', preview.issueToken(7, 3) !== token);
+
+  const entry = preview.resolveToken(token);
+  check('it resolves to its site', entry && entry.siteId === 7, JSON.stringify(entry));
+  check('an unknown token resolves to nothing', preview.resolveToken('nope') === null);
+  check('so does an empty one', preview.resolveToken('') === null && preview.resolveToken() === null);
+
+  preview.revokeTokensFor(7);
+  check('revoking a site drops its tokens', preview.resolveToken(token) === null);
+
+  check('they do not last forever', preview.TOKEN_TTL_MS > 0 && preview.TOKEN_TTL_MS <= 86400000,
+    String(preview.TOKEN_TTL_MS));
+}
+
+console.log('\nwhy the token exists at all');
+{
+  const fs = require('fs');
+  const read = (rel) => fs.readFileSync(require('path').join(__dirname, '..', rel), 'utf8');
+  const index = read('src/index.js');
+  const route = read('src/routes/preview.js');
+  const view = read('src/views/site.ejs');
+
+  /*
+   * The frame is sandboxed without allow-same-origin, so its document has an
+   * opaque origin and the browser withholds the SameSite=Lax session cookie
+   * from every request that document makes. Behind the sign-in check, the page
+   * loaded and every image in it was answered with a redirect to /login.
+   */
+  check('the preview route is mounted before the sign-in check',
+    index.indexOf("require('./routes/preview')") < index.indexOf('app.use(auth.requireAuth)'),
+    'otherwise images inside the frame are redirected to the sign-in page');
+  check('and it does not use the session at all',
+    !/loadSite/.test(route) && !/req\.user/.test(route));
+  check('the token is what authorises it', /preview\.resolveToken\(req\.params\.token\)/.test(route));
+  check('an expired token says so in words', /This preview has expired/.test(route));
+  check('the frame still has no allow-same-origin',
+    /sandbox="allow-scripts allow-forms allow-popups"/.test(view),
+    'that is what the token is buying: the frame stays walled off');
+
+  // Non-GET requests inside a preview are the site's own forms, not panel
+  // actions, so the panel's CSRF token cannot be required for them.
+  const auth = read('src/auth.js');
+  check('a form inside a preview is not rejected as CSRF',
+    /req\.path\.startsWith\('\/preview\/'\)\) return next\(\)/.test(auth));
+
+  // And the limiter must not treat a page full of images as an attack.
+  const rl = read('src/ratelimit.js');
+  check('the preview has its own rate-limit bucket',
+    /preview: \{ windowMs/.test(rl));
+  check('counted per token rather than per address',
+    /bucket === 'preview'/.test(rl),
+    'two people previewing two sites from one office are not one another\'s problem');
+}
+
 /* ------------------------------------------------- a real proxied request -- */
 (async () => {
   console.log('\nproxying a real server');

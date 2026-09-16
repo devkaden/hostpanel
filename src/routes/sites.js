@@ -174,6 +174,9 @@ router.get(
        * fallback and is what gets shown before a domain is configured.
        */
       previewUrl: getSetting('host_ip') ? `http://${getSetting('host_ip')}:${site.port}/` : '',
+      // Minted per page load, so a preview left open in a tab for days stops
+      // working rather than staying a live door to the site.
+      previewToken: preview.issueToken(site.id, req.user.id),
       previewDomainUrl,
       // Checked against the address the browser will actually be asked to
       // frame, which is the proxied one whenever a domain exists.
@@ -242,54 +245,32 @@ router.get('/sites/:id/progress', loadSite, (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
- * Preview proxy
- * ------------------------------------------------------------------ *
- * The site's own pages, served back through the panel so the preview is
- * same-origin. See src/preview.js for why this is worth the machinery.
- *
- * Mounted deliberately wide - every method and every path under the prefix -
- * because a page is not just its HTML: its stylesheets, images, fonts and
- * form posts all have to come through the same door or the render is wrong.
- */
-router.all(
-  // Express 4 route syntax: a trailing * captures the rest of the path. The
-  // bare form is matched too, so /preview/3 works as well as /preview/3/.
-  ['/preview/:id', '/preview/:id/*'],
-  loadSite,
-  wrap(async (req, res) => {
-    if (!req.site.port) return res.status(409).send('This site has no port yet.');
-
-    const base = `/preview/${req.site.id}/`;
-    // Everything after the prefix, query string included, is the site's path.
-    const rest = req.originalUrl.slice(base.length - 1) || '/';
-
-    return preview.proxy(req, res, {
-      port: req.site.port,
-      base,
-      upstreamPath: rest.startsWith('/') ? rest : `/${rest}`,
-    });
-  })
-);
-
-/* ------------------------------------------------------------------ *
  * Lifecycle actions
  * ------------------------------------------------------------------ */
-const ACTIONS = {
+/*
+ * A null-prototype object, and looked up with hasOwnProperty below.
+ *
+ * A plain object inherits from Object.prototype, so ACTIONS["constructor"] and
+ * ACTIONS["toString"] are both functions - and the action comes straight out of
+ * the URL. The lookup would find something that was never meant to be callable
+ * here and call it with a site record.
+ */
+const ACTIONS = Object.assign(Object.create(null), {
   start: async (site) => sites.startSite(site),
   stop: async (site) => sites.stopSite(site),
   restart: async (site) => sites.restartSite(site),
   rebuild: async (site) => sites.rebuildSite(site.id),
   install: async (site) => sites.runInstall(site),
   reprovision: async (site) => sites.provisionSite(site.id, { createProxy: false }),
-};
+});
 
 router.post(
   '/sites/:id/action/:action',
   loadSite,
   wrap(async (req, res) => {
-    const action = req.params.action;
-    const handler = ACTIONS[action];
-    if (!handler) return res.status(400).json({ error: 'Unknown action' });
+    const action = String(req.params.action || '');
+    const handler = Object.prototype.hasOwnProperty.call(ACTIONS, action) ? ACTIONS[action] : null;
+    if (typeof handler !== 'function') return res.status(400).json({ error: 'Unknown action' });
 
     audit(req, `site.${action}`, req.site.name);
 

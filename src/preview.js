@@ -24,6 +24,65 @@
  */
 
 const http = require('http');
+const crypto = require('crypto');
+
+/* ------------------------------------------------------------------ *
+ * Preview tokens
+ * ------------------------------------------------------------------ *
+ * The frame is sandboxed without allow-same-origin, which gives the document
+ * inside it an opaque origin - and that is what makes the preview safe to run
+ * a stranger's site in. It also means the browser treats every request that
+ * document makes as cross-site, so a SameSite=Lax session cookie is not sent
+ * with it.
+ *
+ * The effect is precise and confusing: the page itself loads, because the
+ * browser attributes that navigation to the panel page around it, and then
+ * every image, stylesheet and font inside comes back as a redirect to the sign
+ * -in page. A preview that renders the HTML and none of the pictures.
+ *
+ * So the preview cannot rely on the cookie. What identifies it instead is a
+ * random token in the path, which is exactly what the browser does carry: it
+ * is part of every URL the page resolves, through the <base> tag and through
+ * the rewriting below.
+ *
+ * It is a capability, so it is treated as one: unguessable, tied to one site,
+ * expiring, and no use for anything but looking at that site - which is a
+ * website, usually a public one.
+ */
+const TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+const tokens = new Map();
+
+/** Mints a token for a site. Called when the page holding the frame is rendered. */
+function issueToken(siteId, userId) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  tokens.set(token, { siteId: Number(siteId), userId, expiresAt: Date.now() + TOKEN_TTL_MS });
+  return token;
+}
+
+/** The site a token stands for, or null when it is unknown or has expired. */
+function resolveToken(token) {
+  const entry = tokens.get(String(token || ''));
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    tokens.delete(String(token));
+    return null;
+  }
+  return entry;
+}
+
+function revokeTokensFor(siteId) {
+  for (const [token, entry] of tokens) {
+    if (entry.siteId === Number(siteId)) tokens.delete(token);
+  }
+}
+
+const tokenSweeper = setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of tokens) {
+    if (now >= entry.expiresAt) tokens.delete(token);
+  }
+}, 10 * 60 * 1000);
+if (tokenSweeper.unref) tokenSweeper.unref();
 
 /* ------------------------------------------------------------------ *
  * URL rewriting
@@ -243,6 +302,10 @@ function proxy(req, res, { port, base, upstreamPath }) {
 }
 
 module.exports = {
+  issueToken,
+  resolveToken,
+  revokeTokensFor,
+  TOKEN_TTL_MS,
   proxy,
   rewriteHtml,
   rewriteCss,

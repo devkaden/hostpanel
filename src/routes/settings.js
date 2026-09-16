@@ -10,7 +10,7 @@ const auth = require('../auth');
 const docker = require('../docker');
 const npmplus = require('../npmplus');
 const terminal = require('../terminal');
-const { detectHostIp, humanBytes } = require('../netutil');
+const { detectHostIp, humanBytes, stripTrailingSlashes } = require('../netutil');
 const { wrap } = require('../middleware');
 
 const router = express.Router();
@@ -165,6 +165,13 @@ router.post(
       Number.isInteger(maxUpload) && maxUpload >= 1 && maxUpload <= 20480 ? String(maxUpload) : ''
     );
 
+    setSetting(
+      'rate_limit_profile',
+      ['relaxed', 'standard', 'strict'].includes(body.rate_limit_profile)
+        ? body.rate_limit_profile
+        : 'standard'
+    );
+
     const minLen = parseInt(body.min_password_length, 10);
     setSetting(
       'min_password_length',
@@ -194,7 +201,7 @@ router.post(
       setSetting('port_range_end', String(rangeEnd));
     }
 
-    setSetting('npmplus_url', String(body.npmplus_url || '').trim().replace(/\/+$/, ''));
+    setSetting('npmplus_url', stripTrailingSlashes(body.npmplus_url));
     setSetting('npmplus_email', String(body.npmplus_email || '').trim());
     setSetting('npmplus_le_email', String(body.npmplus_le_email || '').trim());
     setSetting('npmplus_enabled', body.npmplus_enabled ? '1' : '0');
@@ -216,7 +223,7 @@ router.post(
   wrap(async (req, res) => {
     // Allow testing values typed into the form before they are saved.
     const temp = {
-      npmplus_url: String(req.body.npmplus_url || '').trim().replace(/\/+$/, ''),
+      npmplus_url: stripTrailingSlashes(req.body.npmplus_url),
       npmplus_email: String(req.body.npmplus_email || '').trim(),
       npmplus_password: String(req.body.npmplus_password || ''),
       npmplus_insecure: req.body.npmplus_insecure ? '1' : '0',

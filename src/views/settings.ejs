@@ -112,6 +112,20 @@
           </div>
 
           <div class="field">
+            <label for="rate_limit_profile">
+              Request Limit
+              <span class="help" data-help="A ceiling on how many requests one account, or one address before sign-in, may make per minute. It never affects a build log or a terminal session, which are one long request each."></span>
+            </label>
+            <select id="rate_limit_profile" name="rate_limit_profile">
+              <option value="relaxed" <%= settings.rate_limit_profile === 'relaxed' ? 'selected' : '' %>>Relaxed - a panel only you reach</option>
+              <option value="standard" <%= (settings.rate_limit_profile || 'standard') === 'standard' ? 'selected' : '' %>>Standard - accounts you handed out</option>
+              <option value="strict" <%= settings.rate_limit_profile === 'strict' ? 'selected' : '' %>>Strict - the panel is being probed</option>
+            </select>
+            <div class="hint">Someone over the limit is told to wait, not signed out. Sign-in has its own
+              separate lockout that this does not change.</div>
+          </div>
+
+          <div class="field">
             <label for="min_password_length">Minimum Password Length</label>
             <input id="min_password_length" name="min_password_length" type="number" min="8" max="128"
                    value="<%= settings.min_password_length || '10' %>">
