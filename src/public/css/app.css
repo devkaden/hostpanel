@@ -101,18 +101,115 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   letter-spacing: .02em;
 }
-.topnav { display: flex; gap: .25rem; flex: 1; flex-wrap: wrap; }
+.brand-name { font-size: .97rem; }
+.topnav { display: flex; gap: .15rem; flex: 1; flex-wrap: wrap; }
 .topnav a {
-  padding: .4rem .7rem;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .42rem .7rem;
   border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: .92rem;
+  transition: background .12s ease, color .12s ease;
 }
 .topnav a:hover { background: var(--panel); color: var(--text); text-decoration: none; }
 .topnav a.active { background: var(--accent-soft); color: var(--accent); }
-.topbar-right { display: flex; align-items: center; gap: .5rem; }
-.who { color: var(--muted); font-size: .88rem; display: flex; align-items: center; gap: .4rem; }
+.topbar-right { display: flex; align-items: center; gap: .45rem; }
 .inline { display: inline; margin: 0; }
+
+/* --------------------------------------------------------------- icons --
+   Inline SVG sized in ems so an icon tracks the text it sits beside. */
+.ico { width: 1.05em; height: 1.05em; flex: none; vertical-align: -0.16em; }
+.ico-sm { width: .85em; height: .85em; }
+.ico-lg { width: 1.4em; height: 1.4em; }
+
+/* Only one half of the theme toggle is ever shown, whichever is the
+   opposite of the current theme - the icon says what pressing it does. */
+#theme-toggle .theme-sun { display: none; }
+#theme-toggle .theme-moon { display: inline-flex; }
+:root[data-theme="dark"] #theme-toggle .theme-sun,
+:root[data-theme="dark"] #theme-toggle .theme-moon,
+
+/* --------------------------------------------------------------- menu -- */
+.menu { position: relative; }
+.menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .28rem .5rem .28rem .3rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.menu-trigger:hover { background: var(--panel); color: var(--text); border-color: var(--border); }
+.menu[data-open="true"] .menu-trigger { background: var(--panel); color: var(--text); border-color: var(--border); }
+.avatar {
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: .78rem;
+  font-weight: 700;
+}
+.menu-name { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-panel {
+  position: absolute;
+  top: calc(100% + .45rem);
+  right: 0;
+  min-width: 232px;
+  padding: .35rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .28);
+  display: none;
+  z-index: 60;
+}
+.menu[data-open="true"] .menu-panel { display: block; }
+.menu-head { padding: .5rem .6rem .4rem; }
+.menu-user { font-weight: 600; font-size: .92rem; }
+.menu-role { color: var(--muted); font-size: .8rem; margin-top: .1rem; }
+.menu-sep { height: 1px; background: var(--border); margin: .3rem 0; }
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  width: 100%;
+  padding: .5rem .6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
+.menu-item .ico { color: var(--muted); }
+.menu-item:hover .ico { color: inherit; }
+.menu-danger:hover { background: var(--red-soft); color: var(--red); }
+
+/* -------------------------------------------------------------- footer -- */
+.sitefoot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  padding: 1.6rem 1.25rem 2.4rem;
+  color: var(--muted);
+  font-size: .82rem;
+}
+.sitefoot .dot { opacity: .5; }
+.sitefoot a { color: var(--muted); }
+.sitefoot a:hover { color: var(--accent); }
 
 /* ------------------------------------------------------------------ page */
 .wrap { max-width: 1240px; margin: 0 auto; padding: 1.75rem 1.25rem 4rem; }
@@ -150,7 +247,6 @@ h3 { font-size: .95rem; margin: 0 0 .6rem; }
 
 .grid { display: grid; gap: 1.1rem; }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
-.grid-3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 
 /* ----------------------------------------------------------------- stats */
@@ -283,8 +379,21 @@ textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-si
 .site-card .links a:hover { color: var(--accent); }
 
 /* ------------------------------------------------------------ site tabs */
-.tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--border); margin-bottom: 1.3rem; overflow-x: auto; }
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.3rem;
+}
+.tabbar-actions { display: flex; gap: .35rem; flex-wrap: wrap; padding-bottom: .5rem; }
+.tabs { display: flex; gap: .2rem; overflow-x: auto; }
 .tabs a {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
   padding: .55rem .9rem;
   color: var(--muted);
   border-bottom: 2px solid transparent;
@@ -326,21 +435,7 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .crumbs a { color: var(--muted); }
 .crumbs a:hover { color: var(--accent); }
 .crumbs .sep { color: var(--muted); opacity: .5; }
-.file-name { display: flex; align-items: center; gap: .55rem; }
-.file-icon { width: 17px; text-align: center; color: var(--muted); }
-.file-icon.dir { color: var(--accent); }
 .file-actions { display: flex; gap: .3rem; justify-content: flex-end; }
-.dropzone {
-  border: 1.5px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 1.1rem;
-  text-align: center;
-  color: var(--muted);
-  font-size: .86rem;
-  transition: border-color .12s, background .12s;
-  cursor: pointer;
-}
-.dropzone.hot { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
 /* ---------------------------------------------------------------- modal */
 .modal-backdrop {
@@ -722,4 +817,52 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   .dlg-body { flex-direction: column; gap: .7rem; }
   .dlg-foot { flex-direction: column-reverse; }
   .dlg-foot .btn { width: 100%; }
+}
+
+/* Shown only when the preview has been hidden, so there is always a way back. */
+.preview-show { margin-bottom: 1rem; }
+
+/* --------------------------------------------------------- image view -- */
+.image-body {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background:
+    linear-gradient(45deg, var(--bg) 25%, transparent 25%) 0 0 / 18px 18px,
+    linear-gradient(-45deg, var(--bg) 25%, transparent 25%) 0 9px / 18px 18px,
+    linear-gradient(45deg, transparent 75%, var(--bg) 75%) 9px -9px / 18px 18px,
+    linear-gradient(-45deg, transparent 75%, var(--bg) 75%) -9px 0 / 18px 18px;
+  min-height: 220px;
+}
+.image-body img { max-width: 100%; max-height: 66vh; border-radius: var(--radius-sm); }
+
+.fm-search-wrap { position: relative; }
+.fm-search-icon {
+  position: absolute;
+  left: .65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.fm-search-wrap input { padding-left: 2.1rem; }
+.fm-icon .ico { width: 1em; height: 1em; }
+
+/* --------------------------------------------------------- users page -- */
+.user-cell { display: flex; align-items: center; gap: .7rem; }
+.user-name { font-weight: 600; }
+.avatar-lg { width: 34px; height: 34px; font-size: .92rem; }
+.dot-sep { opacity: .5; margin: 0 .25rem; }
+.users-table td { vertical-align: middle; }
+.users-table .pill + .pill { margin-left: .3rem; }
+
+/* On narrow screens the action bars carry too many words; the icons alone
+   still say what each button does, and the title attribute fills the gap. */
+@media (max-width: 720px) {
+  .tabbar-actions .btn span,
+  .btn-label { display: none; }
+  .tabbar-actions .btn { padding: .48rem .6rem; }
+  .tabs a span { display: none; }
+  .tabs a { padding: .55rem .75rem; }
+  .menu-name { display: none; }
 }

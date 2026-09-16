@@ -251,11 +251,17 @@
       ok.className = 'btn ' + (o.danger ? 'btn-danger' : 'btn-primary');
       ok.textContent = o.confirmText || 'OK';
       ok.addEventListener('click', function () {
+        if (o.copyValue && /^copy$/i.test(o.confirmText || '')) {
+          copy(o.copyValue, o.copyLabel || 'Command');
+        }
         finish(o.input ? (input ? input.value : '') : true);
       });
       foot.appendChild(ok);
 
-      if (o.copyValue) {
+      // A dialog with something to copy gets exactly one Copy button. It used
+      // to get two - this one, plus the confirm button when the caller had
+      // also named it "Copy" - which looked like a bug because it was one.
+      if (o.copyValue && !/^copy$/i.test(o.confirmText || '')) {
         var copyBtn = document.createElement('button');
         copyBtn.className = 'btn';
         copyBtn.textContent = 'Copy';
@@ -319,6 +325,9 @@
     document.querySelectorAll('[data-mode-set]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-mode-set') === value));
     });
+    document.querySelectorAll('[data-mode-label]').forEach(function (el) {
+      el.textContent = value === 'advanced' ? 'Advanced' : 'Simple';
+    });
     if (persist) savePref({ ui_mode: value });
   }
 
@@ -342,6 +351,84 @@
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   }
 
+  /* ----------------------------------------------------- dropdowns ----- */
+  /**
+   * Any .menu with a .menu-trigger. Closes on outside click and on Escape,
+   * because a menu that only closes by pressing the same button again is the
+   * kind of small wrongness that makes a UI feel unfinished.
+   */
+  function initMenus() {
+    var menus = Array.prototype.slice.call(document.querySelectorAll('.menu'));
+    if (!menus.length) return;
+
+    function closeAll(except) {
+      menus.forEach(function (m) {
+        if (m === except) return;
+        m.setAttribute('data-open', 'false');
+        var t = m.querySelector('.menu-trigger');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    menus.forEach(function (menu) {
+      var trigger = menu.querySelector('.menu-trigger');
+      if (!trigger) return;
+      menu.setAttribute('data-open', 'false');
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.getAttribute('data-open') === 'true';
+        closeAll(menu);
+        menu.setAttribute('data-open', String(!open));
+        trigger.setAttribute('aria-expanded', String(!open));
+      });
+      // Clicks inside the panel should not close it before the control runs.
+      var panel = menu.querySelector('.menu-panel');
+      if (panel) panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    });
+
+    document.addEventListener('click', function () { closeAll(null); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeAll(null);
+    });
+  }
+
+  /* -------------------------------------------------- site actions ----- */
+  /**
+   * Start / Stop / Restart / Apply changes, wherever they appear.
+   *
+   * These used to be wired up inside the Overview page, which is why the other
+   * site tabs had no controls at all: switching to Logs to watch a restart
+   * meant navigating back to press the button. Living here, the same bar works
+   * on every tab.
+   */
+  function initSiteActions() {
+    var bar = document.querySelector('[data-site-actions]');
+    if (!bar) return;
+    var siteId = bar.getAttribute('data-site-actions');
+
+    bar.querySelectorAll('[data-action]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var action = btn.getAttribute('data-action');
+        var label = btn.textContent.trim();
+        btn.disabled = true;
+        try {
+          var res = await api('/sites/' + siteId + '/action/' + action, { method: 'POST' });
+          if (res.background) {
+            toast(label + ' started', 'ok');
+            // The build log lives on the Overview page; go and watch it.
+            window.location.href = '/sites/' + siteId + '?provisioning=1';
+            return;
+          }
+          toast(label + ' done', 'ok');
+          window.location.reload();
+        } catch (err) {
+          await alertDialog({ title: label + ' failed', message: err.message, tone: 'danger' });
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     setMode(currentMode());
 
@@ -355,6 +442,15 @@
     document.querySelectorAll('[data-mode-set]').forEach(function (b) {
       b.addEventListener('click', function () { setMode(b.getAttribute('data-mode-set'), true); });
     });
+    document.querySelectorAll('[data-mode-toggle]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        setMode(currentMode() === 'advanced' ? 'simple' : 'advanced', true);
+      });
+    });
+
+    initMenus();
+    initSiteActions();
 
     // Help bubbles are reachable by keyboard, not just hover.
     document.querySelectorAll('.help').forEach(function (h) {

@@ -18,12 +18,10 @@
       </p>
     </div>
     <div class="page-actions">
-      <button class="btn" data-action="start">Start</button>
-      <button class="btn" data-action="stop">Stop</button>
-      <button class="btn" data-action="restart">Restart</button>
-      <button class="btn" data-action="rebuild" title="Recreate the container from the current settings. Your files are kept.">Apply changes</button>
-      <% if (site.type === 'node') { %>
-        <button class="btn" data-action="install" title="Run the install command against this site's files">Install dependencies</button>
+      <% if (previewUrl) { %>
+        <a class="btn" href="<%= previewUrl %>" target="_blank" rel="noopener">
+          <%- icon('external') %><span>Open site</span>
+        </a>
       <% } %>
     </div>
   </div>
@@ -35,7 +33,7 @@
       <strong>Dependencies are not installed.</strong>
       This site has a <code>package.json</code> but no <code>node_modules</code>, so it exits
       on start with <code>Cannot find module</code>. Press
-      <button class="btn btn-sm btn-primary" data-action="install">Install dependencies</button>
+      <button class="btn btn-sm btn-primary" id="deps-install">Install dependencies</button>
       and the site will start on its own once that finishes.
     </div>
   <% } %>
@@ -66,12 +64,15 @@
   <div class="card" id="progress-card" style="<%= provisioning ? '' : 'display:none' %>">
     <div class="card-head">
       <h2>Build output</h2>
-      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('progress-card').style.display='none'">Hide</button>
+      <button class="btn btn-sm btn-ghost" aria-label="Close" onclick="document.getElementById('progress-card').style.display='none'">Hide</button>
     </div>
     <div class="console" id="progress-console">Waiting for output...</div>
   </div>
 
   <% if (previewUrl) { %>
+    <button class="btn btn-sm preview-show" id="preview-show" style="display:none">
+      <%- icon('eye') %><span>Show preview</span>
+    </button>
     <div class="card" id="preview-card">
       <div class="card-head">
         <h2>Preview</h2>
@@ -81,9 +82,15 @@
             <button type="button" data-size="tablet" aria-pressed="false">Tablet</button>
             <button type="button" data-size="phone" aria-pressed="false">Phone</button>
           </div>
-          <button class="btn btn-sm" id="preview-reload">Refresh</button>
-          <a class="btn btn-sm" href="<%= previewUrl %>" target="_blank" rel="noopener">Open in a new tab</a>
-          <button class="btn btn-sm btn-ghost" id="preview-hide">Hide</button>
+          <button class="btn btn-sm" id="preview-reload" title="Reload the preview">
+            <%- icon('refresh') %><span>Refresh</span>
+          </button>
+          <a class="btn btn-sm" href="<%= previewUrl %>" target="_blank" rel="noopener">
+            <%- icon('external') %><span>New tab</span>
+          </a>
+          <button class="btn btn-sm btn-ghost" aria-label="Close" id="preview-hide" title="Hide the preview">
+            <%- icon('eyeOff') %><span>Hide</span>
+          </button>
         </div>
       </div>
 
@@ -376,7 +383,7 @@
   <div class="modal">
     <div class="modal-head">
       <h3>Delete <%= site.name %></h3>
-      <button class="btn btn-sm btn-ghost" data-close-modal="delete-modal">&times;</button>
+      <button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="delete-modal"><%- icon('close') %></button>
     </div>
     <div class="modal-body">
       <p class="small">Type <strong><%= site.name %></strong> to confirm.</p>
@@ -400,7 +407,7 @@
 
 <div class="modal-backdrop" id="template-modal">
   <div class="modal">
-    <div class="modal-head"><h3>Save as preset</h3><button class="btn btn-sm btn-ghost" data-close-modal="template-modal">&times;</button></div>
+    <div class="modal-head"><h3>Save as preset</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="template-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <p class="muted small">Remembers this site's runtime, commands, limits, environment variables and container
         options so you can start the next site from them. The name, domain, port and database are not included.</p>
@@ -418,7 +425,10 @@
   var SITE_ID = <%= site.id %>;
 
   /* ---------------------------------------------------------- actions */
-  document.querySelectorAll('[data-action]').forEach(function (btn) {
+  // The tab bar's buttons are handled in app.js, so every site tab has them.
+  // Only page-local action buttons are bound here - binding both would fire
+  // each action twice.
+  document.querySelectorAll('[data-action]:not([data-site-actions] [data-action])').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var action = btn.getAttribute('data-action');
       var original = btn.textContent;
@@ -441,6 +451,21 @@
       }
     });
   });
+
+  var depsInstall = document.getElementById('deps-install');
+  if (depsInstall) {
+    depsInstall.addEventListener('click', async function () {
+      depsInstall.disabled = true;
+      try {
+        await HP.api('/sites/' + SITE_ID + '/action/install');
+        HP.toast('Installing dependencies', 'ok');
+        showProgress();
+      } catch (err) {
+        HP.toast(err.message, 'error');
+        depsInstall.disabled = false;
+      }
+    });
+  }
 
   /* --------------------------------------------------------- settings */
   document.getElementById('settings-form').addEventListener('submit', async function (e) {
@@ -558,9 +583,30 @@
       iframe.src = base + '?_=' + Date.now();
     });
 
+    // Hiding must be reversible and must survive a reload, or the preview is
+    // simply gone and the only way back is to guess that it is a stored setting.
+    var card = document.getElementById('preview-card');
+    var show = document.getElementById('preview-show');
+
+    function setPreviewHidden(hidden) {
+      card.style.display = hidden ? 'none' : '';
+      show.style.display = hidden ? '' : 'none';
+      try { localStorage.setItem('hp-preview-hidden', hidden ? '1' : '0'); } catch (e) { /* ignore */ }
+    }
+
     document.getElementById('preview-hide').addEventListener('click', function () {
-      document.getElementById('preview-card').style.display = 'none';
+      setPreviewHidden(true);
     });
+    show.addEventListener('click', function () {
+      setPreviewHidden(false);
+      // Reload on reveal: whatever it showed before is likely out of date.
+      var base = iframe.src.split('#')[0].split('?')[0];
+      iframe.src = base + '?_=' + Date.now();
+    });
+
+    try {
+      if (localStorage.getItem('hp-preview-hidden') === '1') setPreviewHidden(true);
+    } catch (e) { /* ignore */ }
   }
 
   /* ---------------------------------------------------------- preset */

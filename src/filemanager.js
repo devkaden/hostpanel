@@ -241,18 +241,6 @@ async function move(site, sourcePaths, destDir) {
   return moved;
 }
 
-async function saveUpload(site, relPath, tmpFile, originalName) {
-  validateName(originalName);
-  const { abs } = resolveSafe(site, path.posix.join(relPath || '', originalName));
-  await fsp.mkdir(path.dirname(abs), { recursive: true });
-  await fsp.rename(tmpFile, abs).catch(async () => {
-    await fsp.copyFile(tmpFile, abs);
-    await fsp.unlink(tmpFile).catch(() => {});
-  });
-  await applyOwnership(site, abs);
-  return abs;
-}
-
 async function extractZip(site, relPath) {
   const { abs } = resolveSafe(site, relPath);
   if (!/\.zip$/i.test(abs)) throw new Error('Only .zip archives can be extracted');
@@ -322,7 +310,6 @@ module.exports = {
   rename,
   remove,
   chmod,
-  saveUpload,
   saveUploadNested,
   move,
   extractZip,

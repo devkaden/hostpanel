@@ -221,13 +221,27 @@ async function runOneShot(image, cmd, { binds = [], workdir, env, network, onPro
  * be written to disk, and so the output streams back live.
  */
 async function buildImageWithPackages(baseImage, packages, tag, onProgress) {
-  await ensureImage(baseImage, onProgress);
-
-  const list = packages.join(' ');
   const say = onProgress || (() => {});
+  const list = packages.join(' ');
+
+  // Recorded on the image so an unchanged list can be skipped. Rebuilding
+  // takes minutes, and pressing "Apply changes" to alter a port should not
+  // reinstall ffmpeg.
+  const stamp = `hostpanel:${baseImage}:${packages.slice().sort().join(' ')}`;
+  try {
+    const existing = await client().getImage(tag).inspect();
+    if (existing && existing.Comment === stamp) {
+      say(`System packages already built into ${tag} (${list})`);
+      return tag;
+    }
+  } catch (_) {
+    /* no such image yet - build it */
+  }
+
+  await ensureImage(baseImage, onProgress);
   say(`Installing system packages: ${list}`);
 
-  // pip is the route for yt-dlp: the Debian package lags badly, and YouTube
+  // yt-dlp does not come from apt: the packaged version lags badly and YouTube
   // changes often enough that a stale copy is a broken one.
   const aptNames = packages.filter((p) => p !== 'yt-dlp');
   const wantsYtDlp = packages.includes('yt-dlp');
@@ -238,12 +252,37 @@ async function buildImageWithPackages(baseImage, packages, tag, onProgress) {
   }
   if (wantsYtDlp) {
     steps.push('apt-get install -y --no-install-recommends curl ca-certificates');
+    // The asset matters. The plain "yt-dlp" release is a Python zipapp, and a
+    // slim Node image has no Python - it downloads happily, chmods happily,
+    // and then fails at the first run with a bad interpreter. The _linux
+    // builds are self-contained, so pick the one for this architecture.
     steps.push(
-      'curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp ' +
-        '-o /usr/local/bin/yt-dlp && chmod 0755 /usr/local/bin/yt-dlp'
+      'case "$(uname -m)" in ' +
+        'x86_64) YTASSET=yt-dlp_linux ;; ' +
+        'aarch64|arm64) YTASSET=yt-dlp_linux_aarch64 ;; ' +
+        '*) YTASSET=yt-dlp ;; ' +
+        'esac; ' +
+        'curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YTASSET" ' +
+        '-o /usr/local/bin/yt-dlp'
     );
+    steps.push('chmod 0755 /usr/local/bin/yt-dlp');
+    // Proves it actually runs. Downloading a file is not the same as having a
+    // working program, and that difference is exactly what went unnoticed.
+    steps.push('yt-dlp --version');
   }
   steps.push('rm -rf /var/lib/apt/lists/*');
+
+  // Report what is actually callable afterwards, so "installed" means "runs".
+  steps.push(
+    'echo "--- installed programs ---"; ' +
+      packages
+        .map(
+          (p) =>
+            `if command -v ${p} >/dev/null 2>&1; then echo "  ${p}: ok"; ` +
+            `else echo "  ${p}: NOT on PATH (the program may have a different command name)"; fi`
+        )
+        .join('; ')
+  );
 
   const container = await client().createContainer({
     Image: baseImage,
@@ -274,7 +313,7 @@ async function buildImageWithPackages(baseImage, packages, tag, onProgress) {
     }
 
     const [repo, version] = tag.split(':');
-    await container.commit({ repo, tag: version || 'latest' });
+    await container.commit({ repo, tag: version || 'latest', comment: stamp });
     say(`Built ${tag}`);
     return tag;
   } finally {

@@ -10,11 +10,10 @@
       <p class="sub">Drag files or folders anywhere on this page to upload them. Drag rows onto a folder to move them.</p>
     </div>
     <div class="page-actions">
-      <button class="btn" id="new-folder-btn">New folder</button>
-      <button class="btn" id="new-file-btn">New file</button>
-      <button class="btn btn-primary" id="upload-btn">Upload files</button>
-      <button class="btn" id="upload-folder-btn">Upload folder</button>
-      <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
+      <button class="btn" id="new-folder-btn"><%- icon('folder') %><span>New folder</span></button>
+      <button class="btn" id="new-file-btn"><%- icon('file') %><span>New file</span></button>
+      <button class="btn btn-primary" id="upload-btn"><%- icon('upload') %><span>Upload files</span></button>
+      <button class="btn" id="upload-folder-btn"><%- icon('folder') %><span>Upload folder</span></button>
     </div>
   </div>
 
@@ -24,13 +23,18 @@
 
   <div class="fm-toolbar">
     <div class="fm-search-wrap">
+      <%- icon('search', 'fm-search-icon') %>
       <input type="text" id="filter" placeholder="Filter this folder" autocomplete="off">
     </div>
     <span class="muted small" id="folder-summary"></span>
     <div class="spacer"></div>
     <span class="muted small" id="selection-count"></span>
-    <button class="btn btn-sm" id="bulk-download" style="display:none">Download selected</button>
-    <button class="btn btn-sm btn-danger" id="bulk-delete" style="display:none">Delete selected</button>
+    <button class="btn btn-sm" id="bulk-download" style="display:none">
+      <%- icon('download') %><span>Download</span>
+    </button>
+    <button class="btn btn-sm btn-danger" id="bulk-delete" style="display:none">
+      <%- icon('trash') %><span>Delete</span>
+    </button>
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
@@ -62,7 +66,9 @@
   <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
   <p class="muted small mt">
     Up to <%= maxUploadMb %> MB per file. Files land in the folder you are viewing.
-    <button class="btn btn-sm btn-ghost" id="copy-cmd">Copy from your computer</button>
+    <button class="btn btn-sm btn-ghost" aria-label="Close" id="copy-cmd">
+      <%- icon('terminal') %><span>Copy from your computer</span>
+    </button>
   </p>
 </div>
 
@@ -76,7 +82,7 @@
 <!-- ------------------------------------------------------------ modals -->
 <div class="modal-backdrop" id="name-modal">
   <div class="modal">
-    <div class="modal-head"><h3 id="name-modal-title">New folder</h3><button class="btn btn-sm btn-ghost" data-close-modal="name-modal">&times;</button></div>
+    <div class="modal-head"><h3 id="name-modal-title">New folder</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="name-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <div class="field">
         <label for="name-input" id="name-modal-label">Folder name</label>
@@ -94,7 +100,7 @@
   <div class="modal modal-wide">
     <div class="modal-head">
       <h3 id="editor-title">Edit</h3>
-      <button class="btn btn-sm btn-ghost" id="editor-close">&times;</button>
+      <button class="btn btn-sm btn-ghost" aria-label="Close" id="editor-close"><%- icon('close') %></button>
     </div>
     <div class="modal-body" style="padding:.5rem .7rem">
       <div class="editor-shell">
@@ -117,6 +123,26 @@
       <div class="spacer"></div>
       <button class="btn" id="editor-cancel">Close</button>
       <button class="btn btn-primary" id="editor-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="image-modal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3 id="image-title">Image</h3>
+      <button class="btn btn-sm btn-ghost" data-close-modal="image-modal" aria-label="Close">
+        <%- icon('close') %>
+      </button>
+    </div>
+    <div class="modal-body image-body">
+      <img id="image-view" alt="">
+    </div>
+    <div class="modal-foot">
+      <span class="muted small" id="image-meta"></span>
+      <div class="spacer"></div>
+      <a class="btn" id="image-download" download><%- icon('download') %><span>Download</span></a>
+      <button class="btn" data-close-modal="image-modal">Close</button>
     </div>
   </div>
 </div>
@@ -148,6 +174,13 @@
 
 <script>
   var SITE_ID = <%= site.id %>;
+  // The rows are built in JavaScript, so the icon markup is handed over from
+  // the server rather than duplicating the icon set in two places.
+  var ICONS = <%- jsonScript({
+    folder: icon('folder'),
+    image: icon('image'),
+    emptyFolder: icon('folder', 'ico-lg'),
+  }) %>;
   var current = <%- jsonScript(listing.path || '') %>;
   var SITE_NAME = <%- jsonScript(site.name) %>;
 
@@ -213,11 +246,18 @@
   }
 
   /* Classifies a file for its little type badge. */
+  var IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'ico', 'bmp'];
+
+  function isImage(item) {
+    if (item.type === 'dir') return false;
+    return IMAGE_EXTS.indexOf((item.name.split('.').pop() || '').toLowerCase()) !== -1;
+  }
+
   function iconFor(item) {
-    if (item.type === 'dir') return { cls: 'dir', text: '\u{1F4C1}' };
+    if (item.type === 'dir') return { cls: 'dir', svg: ICONS.folder };
     var ext = (item.name.split('.').pop() || '').toLowerCase();
     if (item.name.indexOf('.') === -1) return { cls: 'doc', text: '' };
-    if (['png','jpg','jpeg','gif','webp','avif','svg','ico','bmp'].indexOf(ext) !== -1) return { cls: 'img', text: ext };
+    if (IMAGE_EXTS.indexOf(ext) !== -1) return { cls: 'img', text: ext };
     if (['zip','tar','gz','tgz','bz2','xz','7z','rar'].indexOf(ext) !== -1) return { cls: 'archive', text: ext };
     if (['html','htm','css','js','mjs','cjs','ts','tsx','jsx','php','py','rb','sh','json','yml','yaml','xml','sql','vue','svelte','conf'].indexOf(ext) !== -1) return { cls: 'code', text: ext };
     return { cls: 'doc', text: ext };
@@ -262,7 +302,7 @@
         (filter
           ? '<div class="empty" style="padding:0"><h3>Nothing matches "' + HP.escapeHtml(filter) + '"</h3>' +
             '<p>Clear the filter to see everything in this folder.</p></div>'
-          : '<div class="empty" style="padding:0"><div class="empty-icon">&#128193;</div>' +
+          : '<div class="empty" style="padding:0"><div class="empty-icon">' + ICONS.emptyFolder + '</div>' +
             '<h3>This folder is empty</h3><p>Drag files or a folder anywhere on this page to upload them.</p></div>') +
         '</td>';
       tbody.appendChild(empty);
@@ -328,7 +368,8 @@
     wrap.className = 'name-cell';
     var badge = document.createElement('span');
     badge.className = 'fm-icon ' + icon.cls;
-    badge.textContent = icon.text;
+    if (icon.svg) badge.innerHTML = icon.svg;
+    else badge.textContent = icon.text;
     wrap.appendChild(badge);
 
     if (item.type === 'dir') {
@@ -337,6 +378,14 @@
       a.textContent = item.name;
       a.addEventListener('click', function (e) { e.preventDefault(); load(item.path); });
       wrap.appendChild(a);
+    } else if (isImage(item)) {
+      var ia = document.createElement('a');
+      ia.href = '#';
+      ia.className = 'fname';
+      ia.textContent = item.name;
+      ia.title = 'View this image';
+      ia.addEventListener('click', function (e) { e.preventDefault(); openImage(item); });
+      wrap.appendChild(ia);
     } else if (item.editable) {
       var ea = document.createElement('a');
       ea.href = '#';
@@ -377,6 +426,7 @@
     var actions = document.createElement('div');
     actions.className = 'file-actions';
 
+    if (isImage(item)) actions.appendChild(button('View', '', function () { openImage(item); }));
     if (item.editable) actions.appendChild(button('Edit', '', function () { openEditor(item.path); }));
     if (/\.zip$/i.test(item.name)) {
       actions.appendChild(button('Extract', '', async function (btn) {
@@ -1294,6 +1344,37 @@
   }
 
   var cmAvailable = typeof CodeMirror !== 'undefined';
+
+  /* ==================================================== image viewer === */
+  /**
+   * Shows an image in place rather than downloading it to look at it.
+   *
+   * The download endpoint is reused as the source: it already enforces the
+   * per-site path containment, so there is no second way to read a file and no
+   * second place for that check to be forgotten.
+   */
+  function openImage(item) {
+    var url = '/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path);
+    var img = document.getElementById('image-view');
+    var meta = document.getElementById('image-meta');
+
+    document.getElementById('image-title').textContent = item.name;
+    document.getElementById('image-download').href = url;
+    document.getElementById('image-download').setAttribute('download', item.name);
+    meta.textContent = HP.bytes(item.size);
+
+    img.removeAttribute('src');
+    img.alt = item.name;
+    img.onload = function () {
+      meta.textContent = img.naturalWidth + ' x ' + img.naturalHeight + ' - ' + HP.bytes(item.size);
+    };
+    img.onerror = function () {
+      meta.textContent = 'This file could not be displayed as an image.';
+    };
+    img.src = url;
+
+    HP.openModal('image-modal');
+  }
 
   async function openEditor(path) {
     editTarget = path;

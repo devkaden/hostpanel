@@ -6,33 +6,76 @@
         <img src="<%= brandLogo %>" alt="">
       <% } else { %>HP<% } %>
     </span>
-    <span><%= panelTitle %></span>
+    <span class="brand-name"><%= panelTitle %></span>
   </a>
-  <nav class="topnav">
-    <a href="/" class="<%= currentPath === '/' ? 'active' : '' %>">Sites</a>
-    <a href="/sites/new" class="<%= currentPath === '/sites/new' ? 'active' : '' %>">New site</a>
+
+  <nav class="topnav" aria-label="Main">
+    <a href="/" class="<%= currentPath === '/' || currentPath.startsWith('/sites') ? 'active' : '' %>">
+      <%- icon('sites') %><span>Sites</span>
+    </a>
     <% if (u && u.role === 'admin') { %>
-      <a href="/users" class="<%= currentPath.startsWith('/users') ? 'active' : '' %>">Users</a>
-      <a href="/settings" class="<%= currentPath.startsWith('/settings') ? 'active' : '' %>">Settings</a>
+      <a href="/users" class="<%= currentPath.startsWith('/users') ? 'active' : '' %>">
+        <%- icon('users') %><span>Users</span>
+      </a>
+      <a href="/settings" class="<%= currentPath.startsWith('/settings') ? 'active' : '' %>">
+        <%- icon('settings') %><span>Settings</span>
+      </a>
       <% if (typeof hostShell !== 'undefined' && hostShell) { %>
-        <a href="/host/terminal" class="adv <%= currentPath === '/host/terminal' ? 'active' : '' %>">Host shell</a>
+        <a href="/host/terminal" class="adv <%= currentPath === '/host/terminal' ? 'active' : '' %>">
+          <%- icon('terminal') %><span>Host shell</span>
+        </a>
       <% } %>
     <% } %>
-    <a href="/audit" class="adv <%= currentPath === '/audit' ? 'active' : '' %>">Activity</a>
+    <a href="/audit" class="adv <%= currentPath === '/audit' ? 'active' : '' %>">
+      <%- icon('activity') %><span>Activity</span>
+    </a>
   </nav>
+
   <div class="topbar-right">
     <% if (u) { %>
-      <div class="seg" title="Simple hides Docker internals. Advanced shows everything.">
+      <a class="btn btn-primary btn-sm" href="/sites/new" title="Create a new site">
+        <%- icon('plus') %><span class="btn-label">New site</span>
+      </a>
+
+      <div class="seg seg-mode adv" title="Simple hides Docker internals. Advanced shows everything.">
         <button type="button" data-mode-set="simple">Simple</button>
         <button type="button" data-mode-set="advanced">Advanced</button>
       </div>
-      <button type="button" class="icon-btn" id="theme-toggle" title="Switch between light and dark">&#9681;</button>
-      <span class="who adv"><%= u.username %><% if (u.role === 'admin') { %><span class="pill pill-admin">admin</span><% } %></span>
-      <a class="btn btn-ghost btn-sm adv" href="/account/password">Password</a>
-      <form method="post" action="/logout" class="inline">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>
-      </form>
+
+      <button type="button" class="icon-btn" id="theme-toggle"
+              title="Switch between light and dark" aria-label="Switch theme">
+        <span class="theme-sun"><%- icon('sun') %></span>
+        <span class="theme-moon"><%- icon('moon') %></span>
+      </button>
+
+      <div class="menu" id="account-menu">
+        <button type="button" class="menu-trigger" aria-haspopup="true" aria-expanded="false">
+          <span class="avatar"><%= u.username.slice(0, 1).toUpperCase() %></span>
+          <span class="menu-name"><%= u.username %></span>
+          <%- icon('chevronDown', 'ico-sm') %>
+        </button>
+        <div class="menu-panel" role="menu">
+          <div class="menu-head">
+            <div class="menu-user"><%= u.username %></div>
+            <div class="menu-role"><%= u.role === 'admin' ? 'Administrator' : 'Standard user' %></div>
+          </div>
+          <div class="menu-sep"></div>
+          <button type="button" class="menu-item" data-mode-toggle>
+            <%- icon('settings') %>
+            <span>Interface: <strong data-mode-label>Simple</strong></span>
+          </button>
+          <a class="menu-item" href="/account/password" role="menuitem">
+            <%- icon('key') %><span>Change password</span>
+          </a>
+          <div class="menu-sep"></div>
+          <form method="post" action="/logout">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button class="menu-item menu-danger" type="submit">
+              <%- icon('signOut') %><span>Sign out</span>
+            </button>
+          </form>
+        </div>
+      </div>
     <% } %>
   </div>
 </header>

@@ -397,6 +397,21 @@ console.log('\nsystem packages and unreachable apps');
   check('a site with no extra packages uses the base image unchanged',
     /if \(systemPackages\(site\)\.length\) return derivedImageName\(site\);/.test(tplSrc));
 
+  const dockerSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'docker.js'), 'utf8');
+  // The plain yt-dlp release is a Python zipapp and a slim Node image has no
+  // Python: it downloads, chmods, and then fails at the first run. The _linux
+  // builds are self-contained.
+  check('yt-dlp uses the self-contained build, not the Python zipapp',
+    /yt-dlp_linux/.test(dockerSrc));
+  check('and the architecture is chosen rather than assumed',
+    /yt-dlp_linux_aarch64/.test(dockerSrc) && /uname -m/.test(dockerSrc));
+  check('installing is not called done until the program runs',
+    /yt-dlp --version/.test(dockerSrc));
+  check('the build reports what ended up on PATH',
+    /installed programs/.test(dockerSrc));
+  check('an unchanged package list is not rebuilt every time',
+    /existing\.Comment === stamp/.test(dockerSrc));
+
   check('the panel checks whether anything answers on the port',
     /function portAnswers/.test(sitesSrc) && /reachable/.test(sitesSrc));
   check('and explains a blank preview rather than leaving it blank',

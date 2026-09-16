@@ -165,7 +165,14 @@ leaving the shared base image untouched. Installing them into a running
 container instead would work exactly once: the next rebuild recreates it from
 the base image and they are gone. `yt-dlp` is fetched from its own releases
 rather than apt, because the packaged version lags and a stale copy is a broken
-one.
+one — specifically the `yt-dlp_linux` build for the container's architecture,
+since the plain `yt-dlp` asset is a Python zipapp and a slim Node image has no
+Python: it downloads and chmods happily, then fails at the first run. The build
+runs `yt-dlp --version` before committing, so "installed" means "runs", and
+prints which of the requested programs ended up on `PATH`.
+
+Rebuilding is skipped when the package list has not changed, so pressing
+**Apply changes** to alter a port does not reinstall ffmpeg.
 
 **A blank preview gets explained.** If the container is running but nothing
 answers on the site's port, the site page says so and names the two causes that

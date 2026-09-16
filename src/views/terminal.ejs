@@ -18,8 +18,7 @@
     </div>
     <div class="page-actions">
       <span class="pill" id="conn-pill"><span class="dot"></span>connecting</span>
-      <button class="btn" id="reconnect">Reconnect</button>
-      <% if (!isHostShell) { %><a class="btn" href="/sites/<%= site.id %>">Back to site</a><% } %>
+      <button class="btn" id="reconnect"><%- icon('refresh') %><span>Reconnect</span></button>
     </div>
   </div>
 

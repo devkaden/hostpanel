@@ -379,6 +379,24 @@ console.log('\ncache headers do not break downloads');
     /ASSET_VERSION/.test(src));
 }
 
+console.log('\nno inline event handlers carrying data');
+{
+  // onclick="fn({json})" puts untrusted values into an HTML attribute, where
+  // staying safe depends on the escaping being exactly right in a context that
+  // is easy to get wrong. Data attributes plus a lookup table cannot fail the
+  // same way.
+  const views = path.join(__dirname, '..', 'src', 'views');
+  const offenders = [];
+  for (const file of fs.readdirSync(views)) {
+    if (!file.endsWith('.ejs')) continue;
+    const src = fs.readFileSync(path.join(views, file), 'utf8');
+    const re = /on(?:click|change|submit|input)\s*=\s*['"][^'"]*<%/g;
+    if (re.test(src)) offenders.push(file);
+  }
+  check('no inline handler interpolates server data', offenders.length === 0,
+    offenders.join(', '));
+}
+
 console.log('\nsecurity headers declared in src/index.js');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');

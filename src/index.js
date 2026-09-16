@@ -56,6 +56,7 @@ const ASSET_VERSION = (() => {
 // Always available to every template, including the error pages that render
 // before the per-request locals are set.
 app.locals.assetVersion = ASSET_VERSION;
+app.locals.icon = require('./icons').icon;
 
 // xterm.js is served from node_modules so the panel works on an offline LAN.
 const MODULES = path.join(__dirname, '..', 'node_modules');
@@ -92,13 +93,14 @@ app.use(auth.csrf);
  * framed, MIME types are never sniffed, and no referrer leaks the panel URL.
  */
 app.use((req, res, next) => {
-  // Site previews are shown in an iframe, so the panel must be allowed to
-  // frame its own sites. Scoped to the configured host address (any port)
-  // rather than opening framing up to the whole web.
-  const hostIp = getSetting('host_ip');
-  const frameSrc = ["'self'", hostIp ? `http://${hostIp}:*` : '', 'https:']
-    .filter(Boolean)
-    .join(' ');
+  // frame-src has to cover the site previews, which are plain http on a
+  // high-numbered port that changes per site. A host-and-port-wildcard source
+  // is not honoured consistently across browsers, and getting it wrong shows
+  // as a silently blank iframe with nothing in the console to explain it.
+  // Since the only thing the panel ever frames is the user's own sites, the
+  // scheme sources are both accurate and simpler than a list that has to be
+  // rebuilt whenever a port is allocated.
+  const frameSrc = "frame-src 'self' http: https:";
 
   res.set({
     'X-Content-Type-Options': 'nosniff',
@@ -127,7 +129,7 @@ app.use((req, res, next) => {
         "media-src 'self' blob:",
         "connect-src 'self' blob: ws: wss:",
         "worker-src 'self' blob:",
-        `frame-src ${frameSrc}`,
+        frameSrc,
         "form-action 'self'",
         "frame-ancestors 'none'",
         "base-uri 'none'",

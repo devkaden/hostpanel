@@ -220,7 +220,10 @@
                     <td><%= t.name %><% if (t.description) { %><div class="muted small"><%= t.description %></div><% } %></td>
                     <td><%= t.type %></td>
                     <td class="right">
-                      <button class="btn btn-sm btn-danger" onclick="deleteTemplate(<%= t.id %>, <%= JSON.stringify(t.name) %>)">Del</button>
+                      <button class="btn btn-sm btn-danger" data-template-delete="<%= t.id %>"
+                              data-template-name="<%= t.name %>" title="Delete this preset">
+                        <%- icon('trash') %>
+                      </button>
                     </td>
                   </tr>
                 <% }) %>
@@ -263,6 +266,12 @@
       }
     });
   }
+
+  document.querySelectorAll('[data-template-delete]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      deleteTemplate(b.getAttribute('data-template-delete'), b.getAttribute('data-template-name'));
+    });
+  });
 
   async function deleteTemplate(id, name) {
     var ok = await HP.confirm({

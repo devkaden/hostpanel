@@ -24,28 +24,53 @@
     <div>
       <div class="card" style="padding:0;overflow:hidden">
         <div class="table-wrap">
-          <table>
+          <table class="users-table">
             <thead>
-              <tr><th>User</th><th style="width:90px">Role</th><th style="width:70px">Sites</th><th style="width:80px">Quota</th><th style="width:80px">Status</th><th style="width:200px" class="right">Actions</th></tr>
+              <tr>
+                <th>User</th>
+                <th style="width:150px">Role &amp; status</th>
+                <th style="width:110px">Sites</th>
+                <th style="width:170px" class="right">Actions</th>
+              </tr>
             </thead>
             <tbody>
               <% users.forEach(function (u) { %>
                 <tr>
                   <td>
-                    <strong><%= u.username %></strong>
-                    <% if (u.email) { %><div class="muted small"><%= u.email %></div><% } %>
-                    <div class="muted small">last login: <%= u.last_login || 'never' %></div>
+                    <div class="user-cell">
+                      <span class="avatar avatar-lg"><%= u.username.slice(0, 1).toUpperCase() %></span>
+                      <div>
+                        <div class="user-name"><%= u.username %></div>
+                        <div class="muted small">
+                          <%= u.email ? u.email : 'no email' %>
+                          <span class="dot-sep">&middot;</span>
+                          <% if (u.last_login) { %>
+                            last seen <span class="rel" data-time="<%= u.last_login %>"><%= u.last_login %></span>
+                          <% } else { %>never signed in<% } %>
+                        </div>
+                      </div>
+                    </div>
                   </td>
-                  <td><span class="pill <%= u.role === 'admin' ? 'pill-admin' : '' %>"><%= u.role %></span></td>
-                  <td><%= u.site_count %></td>
-                  <td><%= u.site_quota ? u.site_quota : 'none' %></td>
-                  <td><span class="pill <%= u.active ? 'pill-running' : 'pill-error' %>"><%= u.active ? 'active' : 'disabled' %></span></td>
+                  <td>
+                    <span class="pill <%= u.role === 'admin' ? 'pill-admin' : '' %>"><%= u.role === 'admin' ? 'admin' : 'user' %></span>
+                    <span class="pill <%= u.active ? 'pill-running' : 'pill-error' %>"><%= u.active ? 'active' : 'disabled' %></span>
+                  </td>
+                  <td class="muted small nowrap">
+                    <%= u.site_count %><%= u.site_quota ? ' of ' + u.site_quota : '' %>
+                    <%= u.site_quota ? '' : ' (no limit)' %>
+                  </td>
                   <td class="right">
                     <div class="file-actions">
-                      <button class="btn btn-sm" onclick='editUser(<%= JSON.stringify({ id: u.id, username: u.username, email: u.email || "", role: u.role, active: !!u.active, site_quota: u.site_quota }) %>)'>Edit</button>
-                      <button class="btn btn-sm" onclick='resetPw(<%= u.id %>, <%= JSON.stringify(u.username) %>)'>Reset pw</button>
+                      <button class="btn btn-sm" data-edit-user="<%= u.id %>" title="Edit this user">
+                        <%- icon('edit') %><span>Edit</span>
+                      </button>
+                      <button class="btn btn-sm" data-reset-user="<%= u.id %>" title="Generate a new password">
+                        <%- icon('key') %><span>Password</span>
+                      </button>
                       <% if (u.id !== user.id) { %>
-                        <button class="btn btn-sm btn-danger" onclick='delUser(<%= u.id %>, <%= JSON.stringify(u.username) %>, <%= u.site_count %>)'>Del</button>
+                        <button class="btn btn-sm btn-danger" data-delete-user="<%= u.id %>" title="Delete this user">
+                          <%- icon('trash') %>
+                        </button>
                       <% } %>
                     </div>
                   </td>
@@ -98,7 +123,7 @@
 
 <div class="modal-backdrop" id="edit-modal">
   <div class="modal">
-    <div class="modal-head"><h3 id="edit-title">Edit user</h3><button class="btn btn-sm btn-ghost" data-close-modal="edit-modal">&times;</button></div>
+    <div class="modal-head"><h3 id="edit-title">Edit user</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="edit-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <div class="field"><label for="e-email">Email</label><input id="e-email" type="email"></div>
       <div class="field-row">
@@ -125,7 +150,50 @@
 
 <script>
   var editingId = null;
-  var USERS = <%- jsonScript(users.map(function (u) { return { id: u.id, username: u.username }; })) %>;
+  // The whole row set, handed over as data rather than built into onclick
+  // attributes. Markup that carries JSON has to be escaped exactly right to
+  // stay safe; a lookup table cannot be got wrong in the same way.
+  var USERS = <%- jsonScript(users.map(function (u) {
+    return {
+      id: u.id,
+      username: u.username,
+      email: u.email || '',
+      role: u.role,
+      active: !!u.active,
+      site_quota: u.site_quota,
+      site_count: u.site_count,
+    };
+  })) %>;
+
+  function userById(id) {
+    return USERS.filter(function (u) { return String(u.id) === String(id); })[0];
+  }
+
+  document.querySelectorAll('[data-edit-user]').forEach(function (b) {
+    b.addEventListener('click', function () { editUser(userById(b.getAttribute('data-edit-user'))); });
+  });
+  document.querySelectorAll('[data-reset-user]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var u = userById(b.getAttribute('data-reset-user'));
+      resetPw(u.id, u.username);
+    });
+  });
+  document.querySelectorAll('[data-delete-user]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var u = userById(b.getAttribute('data-delete-user'));
+      delUser(u.id, u.username, u.site_count);
+    });
+  });
+
+  // Absolute timestamps are hard to read at a glance; keep the exact value on
+  // hover for when it matters.
+  document.querySelectorAll('.rel[data-time]').forEach(function (el) {
+    var iso = el.getAttribute('data-time').replace(' ', 'T') + 'Z';
+    var when = new Date(iso);
+    if (isNaN(when.getTime())) return;
+    el.title = when.toLocaleString();
+    el.textContent = HP.relTime(when.getTime());
+  });
 
   function editUser(u) {
     editingId = u.id;

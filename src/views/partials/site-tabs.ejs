@@ -1,7 +1,42 @@
-<div class="tabs">
-  <a href="/sites/<%= site.id %>" class="<%= currentPath === '/sites/' + site.id ? 'active' : '' %>">Overview</a>
-  <a href="/sites/<%= site.id %>/files" class="<%= currentPath.endsWith('/files') ? 'active' : '' %>">Files</a>
-  <a href="/sites/<%= site.id %>/logs" class="<%= currentPath.endsWith('/logs') ? 'active' : '' %>">Logs</a>
-  <a href="/sites/<%= site.id %>/terminal" class="<%= currentPath.endsWith('/terminal') ? 'active' : '' %>">Shell</a>
-  <a href="/sites/<%= site.id %>/cron" class="<%= currentPath.endsWith('/cron') ? 'active' : '' %>">Cron</a>
+<%
+  /* Rendered on every site tab, so the controls are always within reach.
+     The buttons are wired up in app.js rather than per page - they used to
+     live only on Overview, which meant switching to Logs to watch a restart
+     required navigating back to press the button. */
+  const tab = (suffix) => currentPath.endsWith(suffix);
+%>
+<div class="tabbar">
+  <div class="tabs">
+    <a href="/sites/<%= site.id %>" class="<%= currentPath === '/sites/' + site.id ? 'active' : '' %>">
+      <%- icon('globe') %><span>Overview</span>
+    </a>
+    <a href="/sites/<%= site.id %>/files" class="<%= tab('/files') ? 'active' : '' %>">
+      <%- icon('files') %><span>Files</span>
+    </a>
+    <a href="/sites/<%= site.id %>/logs" class="<%= tab('/logs') ? 'active' : '' %>">
+      <%- icon('logs') %><span>Logs</span>
+    </a>
+    <a href="/sites/<%= site.id %>/terminal" class="<%= tab('/terminal') ? 'active' : '' %>">
+      <%- icon('terminal') %><span>Shell</span>
+    </a>
+    <a href="/sites/<%= site.id %>/cron" class="<%= tab('/cron') ? 'active' : '' %>">
+      <%- icon('clock') %><span>Cron</span>
+    </a>
+  </div>
+
+  <div class="tabbar-actions" data-site-actions="<%= site.id %>">
+    <button class="btn btn-sm" data-action="start"><%- icon('play') %><span>Start</span></button>
+    <button class="btn btn-sm" data-action="stop"><%- icon('stop') %><span>Stop</span></button>
+    <button class="btn btn-sm" data-action="restart"><%- icon('restart') %><span>Restart</span></button>
+    <button class="btn btn-sm" data-action="rebuild"
+            title="Recreate the container from the current settings. Your files are kept.">
+      <%- icon('apply') %><span>Apply changes</span>
+    </button>
+    <% if (site.type === 'node') { %>
+      <button class="btn btn-sm" data-action="install"
+              title="Run the install command against this site's files">
+        <%- icon('install') %><span>Install deps</span>
+      </button>
+    <% } %>
+  </div>
 </div>

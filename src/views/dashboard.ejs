@@ -27,7 +27,7 @@
       <p class="sub"><%= counts.total %> site<%= counts.total === 1 ? '' : 's' %> &middot; <%= counts.running %> running<% if (counts.stopped) { %> &middot; <%= counts.stopped %> stopped<% } %><% if (counts.missing) { %> &middot; <%= counts.missing %> missing container<% } %></p>
     </div>
     <div class="page-actions">
-      <a class="btn btn-primary" href="/sites/new">+ New site</a>
+      <a class="btn btn-primary" href="/sites/new"><%- icon('plus') %><span>New site</span></a>
     </div>
   </div>
 
@@ -40,7 +40,7 @@
 
   <% if (!sites.length) { %>
     <div class="card empty">
-      <div class="empty-icon">&#127760;</div>
+      <div class="empty-icon"><%- icon('globe', 'ico-lg') %></div>
       <h3>No sites yet</h3>
       <p>A site is one website or app. HostPanel gives each one its own isolated
         space, so they cannot interfere with each other.</p>
