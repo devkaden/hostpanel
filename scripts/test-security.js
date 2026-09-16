@@ -203,6 +203,26 @@ console.log('\nupload transport');
   check('the route enforces the size limit', /maxUploadBytes/.test(routes));
   check('the client uploads with PUT', /xhr\.open\('PUT'/.test(view));
   check('the client sends the CSRF token on uploads', /X-CSRF-Token/.test(view));
+
+  // Answering before the body is read leaves it queued on a keep-alive socket,
+  // where the next request reads it as headers and that connection hangs.
+  check('an early rejection closes the connection',
+    /rejectEarly/.test(routes) && /'Connection', 'close'/.test(routes));
+  check('a failed upload closes it too',
+    (routes.match(/'Connection', 'close'/g) || []).length >= 2);
+
+  // A per-socket timeout outlives the request on a keep-alive connection, so
+  // the timer keeps running against the *next* upload.
+  const routesCode = routes
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  check('the idle timeout is not set on the socket',
+    !/req\.setTimeout\(/.test(routesCode),
+    'req.setTimeout() leaks across keep-alive requests');
+  check('the server logs an upload on arrival, not only on failure',
+    /<- start/.test(routes));
+  check('a failure says how many bytes actually arrived',
+    /of \$\{declared/.test(routes));
 }
 
 console.log('\ndropped-folder file handles');
@@ -240,7 +260,11 @@ console.log('\ndropped-folder file handles');
   check('the read is bounded so a big folder cannot exhaust the tab',
     /MATERIALISE_MAX_FILE/.test(view) && /MATERIALISE_BUDGET/.test(view));
   check('the upload prefers bytes already held',
-    /await bodyFor\(item, fresh\)/.test(view));
+    /await bodyFor\(item, false\)/.test(view));
+  check('a failed upload is retried through a different browser API',
+    /function fetchFile/.test(view) && /retrying with fetch/.test(view));
+  check('an upload that sends nothing is abandoned rather than left hanging',
+    /no progress after 20s/.test(view));
   check('an unreadable file fails with an explanation, not a timeout',
     /Could not read "/.test(view) && /iCloud/.test(view));
   check('the deleted late resolver is really gone',

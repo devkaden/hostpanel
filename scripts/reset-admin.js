@@ -11,6 +11,8 @@
  * user does not exist it is created as an administrator.
  */
 
+require('./require-install')('reset-admin');
+
 const { db } = require('../src/db');
 const auth = require('../src/auth');
 

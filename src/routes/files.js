@@ -171,14 +171,31 @@ router.put(
     const tag = `[upload] ${req.site ? req.site.name : '?'}: ${relative || '(no name)'}`;
     console.log(`${tag} <- start (${req.get('content-length') || 'unknown'} bytes declared)`);
 
-    if (!relative) return res.status(400).json({ error: 'No file name was supplied' });
-
     const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
     const declared = parseInt(req.get('content-length') || '0', 10);
+
+    /**
+     * Answers before the body has been read, and closes the connection.
+     *
+     * Rejecting early is the right thing - there is no reason to receive 600 MB
+     * only to refuse it - but it leaves the rest of the body queued on a
+     * keep-alive socket. The next request on that socket starts reading the
+     * previous body as if it were headers, and that connection hangs. Closing
+     * it is the only way to be sure, and one closed connection costs nothing
+     * next to an upload queue that stalls forever.
+     */
+    const rejectEarly = (status, error) => {
+      res.set('Connection', 'close');
+      console.error(`${tag} -> rejected: ${error}`);
+      return res.status(status).json({ error });
+    };
+
+    if (!relative) return rejectEarly(400, 'No file name was supplied');
     if (declared && declared > config.maxUploadBytes) {
-      return res.status(413).json({
-        error: `"${relative}" is ${Math.round(declared / 1024 / 1024)} MB, over the ${mb} MB limit.`,
-      });
+      return rejectEarly(
+        413,
+        `"${relative}" is ${Math.round(declared / 1024 / 1024)} MB, over the ${mb} MB limit.`
+      );
     }
 
     await fsp.mkdir(config.tmpDir, { recursive: true });
@@ -247,6 +264,9 @@ router.put(
         `${tag} -> FAILED after ${written} of ${declared || '?'} bytes: ${err.message}` +
           (err.code ? ` (${err.code})` : '')
       );
+      // Same reasoning as rejectEarly: whatever is left of this body would be
+      // read as the next request on a reused connection.
+      res.set('Connection', 'close');
       return res.status(tooBig ? 413 : 400).json({
         error: stalled
           ? `The browser stopped sending "${relative}" after ${written} of ` +

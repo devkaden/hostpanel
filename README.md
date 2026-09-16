@@ -192,11 +192,26 @@ dependency on it, and every read is wrapped in its own timeout so nothing can
 hang regardless. The read is capped at 20 MB per file and 250 MB in total so a
 large folder cannot exhaust the tab; anything bigger falls back to its handle.
 
-A file the browser cannot open — most often one that lives in iCloud, OneDrive
-or Dropbox and has not been downloaded locally — is reported by name with that
-explanation, before the upload starts rather than after a timeout. The **Upload
-folder** button is the reliable route for those, since the file picker forces
-the download.
+A file the browser cannot open is reported by name, before the upload starts
+rather than after a timeout, and once three in a row fail the rest are failed
+immediately — the folder itself has gone, and waiting out a ten second timeout
+on each of two hundred files would take half an hour to reach a conclusion
+already obvious after three.
+
+**Safari loses access to a dropped folder almost immediately**, far faster than
+Chrome, so dragging a folder there is unreliable no matter how the reading is
+arranged. The **Upload folder** button goes through the file picker instead,
+which works consistently in every browser, and is also the answer for files
+stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
+
+Each file is sent with `XMLHttpRequest` first, because that is the only way to
+report progress. If that fails for any reason other than the file being
+unreadable, the same bytes go again through `fetch()` — a separate
+implementation inside the browser that fails differently, which matters given
+Safari's history of XHR upload bugs. And if a request neither succeeds nor
+fails within 20 seconds, it is abandoned rather than left to hold the queue: a
+progress bar stuck at 0% with nothing in the log is the one outcome worth
+engineering away.
 
 Both ends have a timeout, because a request that never settles is worse than
 one that fails: the socket stays tied up, and browsers allow only about six
@@ -225,6 +240,18 @@ panel host:
 ```bash
 cd /opt/hostpanel/app && npm run test:upload-live
 ```
+
+Note the directory: `/opt/hostpanel/app` is the copy the panel actually runs,
+with the dependencies and the database. Your git checkout has neither, and the
+script says so rather than throwing a missing-module trace.
+
+From the other end, the file manager has a **Test uploads** button next to the
+size limit. It uploads 1 byte, 64 KB and 2 MB of data generated in the page —
+no file on disk is involved — and then deletes them. That separates the two
+failures that look identical from the outside: if it passes and real uploads
+still hang, the transport is fine and the browser cannot read your files; if it
+hangs too, no file was ever the problem and something between the browser and
+the panel is dropping the request body.
 
 It mints its own session, uploads five real files (empty, tiny, nested, 1 MB,
 8 MB) to a real site over the real HTTP port, checks an oversized one is

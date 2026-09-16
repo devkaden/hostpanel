@@ -19,9 +19,10 @@
 
 const http = require('http');
 const crypto = require('crypto');
-const path = require('path');
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+
+require('./require-install')('test:upload-live');
 
 const config = require('../src/config');
 const { db, getNumericSetting } = require('../src/db');
@@ -181,16 +182,44 @@ const CASES = [
     );
   }
 
-  // A body larger than the limit must be refused, not hang.
+  // A body larger than the limit must be refused from the declared length
+  // alone, before a single byte is sent. Deliberately never sends that body:
+  // the headers go out and we wait for the answer, which is the whole point -
+  // a 512 MB upload should be rejected in milliseconds, not after 512 MB.
   {
     const over = config.maxUploadBytes + 1;
-    const res = await request(
-      'PUT',
-      `/api/sites/${site.id}/files/raw?dir=&path=__selftest-over.bin`,
-      null,
-      { 'Content-Type': 'application/octet-stream', 'Content-Length': String(over) }
-    ).catch((err) => ({ status: 0, body: err.message }));
-    check('an oversized upload is refused up front', res.status === 413,
+    const res = await new Promise((resolve) => {
+      const req = http.request(
+        {
+          host: HOST,
+          port: PORT,
+          method: 'PUT',
+          path: `/api/sites/${site.id}/files/raw?dir=&path=__selftest-over.bin`,
+          headers: {
+            Cookie: cookie,
+            Accept: 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(over),
+          },
+        },
+        (res2) => {
+          const chunks = [];
+          res2.on('data', (c) => chunks.push(c));
+          res2.on('end', () => {
+            req.destroy();
+            resolve({ status: res2.statusCode, body: Buffer.concat(chunks).toString('utf8') });
+          });
+        }
+      );
+      req.setTimeout(15000, () => {
+        req.destroy();
+        resolve({ status: 0, body: 'no answer within 15s - the server waited for the body' });
+      });
+      req.on('error', () => { /* the destroy above lands here */ });
+      req.flushHeaders(); // headers only; the body is never written
+    });
+    check('an oversized upload is refused from its headers alone', res.status === 413,
       `HTTP ${res.status}: ${String(res.body).slice(0, 200)}`);
   }
 
