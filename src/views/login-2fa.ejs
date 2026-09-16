@@ -4,7 +4,7 @@
     <div class="auth-logo">
       <% if (typeof brandLogo !== 'undefined' && brandLogo) { %>
         <img src="<%= brandLogo %>" alt="">
-      <% } else { %>HP<% } %>
+      <% } else { %><img src="/static/logo.svg?v=<%= assetVersion %>" alt=""><% } %>
     </div>
     <h1>Two-Factor Code</h1>
     <p class="sub">Open your authenticator app and enter the six-digit code for <%= panelTitle %>.</p>

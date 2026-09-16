@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="HostPanel">
+  <!--
+    The mark is a stack of three server shelves inside a rounded panel, with the
+    top shelf lit. It reads as "a panel that manages hosts" at 16px, which is the
+    only size that really matters for a favicon, and it is built from four
+    rectangles so it stays crisp without hinting.
+  -->
+  <defs>
+    <linearGradient id="hp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b9cff"/>
+      <stop offset="1" stop-color="#3a63e0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#hp-bg)"/>
+
+  <!-- Three shelves. The gap between them is what makes the stack legible. -->
+  <rect x="15" y="16" width="34" height="9"  rx="3" fill="#fff"/>
+  <rect x="15" y="28" width="34" height="9"  rx="3" fill="#fff" opacity=".72"/>
+  <rect x="15" y="40" width="34" height="9"  rx="3" fill="#fff" opacity=".45"/>
+
+  <!-- Status light on the top shelf: the one detail that says "running". -->
+  <circle cx="21.5" cy="20.5" r="2.1" fill="#3a63e0"/>
+</svg>

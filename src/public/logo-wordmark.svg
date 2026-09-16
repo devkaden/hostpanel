@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 64" width="260" height="64" role="img" aria-label="HostPanel">
+  <defs>
+    <linearGradient id="hp-bg-w" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b9cff"/>
+      <stop offset="1" stop-color="#3a63e0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#hp-bg-w)"/>
+  <rect x="15" y="16" width="34" height="9" rx="3" fill="#fff"/>
+  <rect x="15" y="28" width="34" height="9" rx="3" fill="#fff" opacity=".72"/>
+  <rect x="15" y="40" width="34" height="9" rx="3" fill="#fff" opacity=".45"/>
+  <circle cx="21.5" cy="20.5" r="2.1" fill="#3a63e0"/>
+
+  <!-- currentColor so the wordmark works on a light or a dark README. -->
+  <text x="80" y="41"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+        font-size="27" font-weight="650" letter-spacing="-0.4" fill="currentColor">
+    Host<tspan fill="#5b9cff">Panel</tspan>
+  </text>
+</svg>

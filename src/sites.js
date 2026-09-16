@@ -3,6 +3,7 @@
 const fs = require('fs');
 const net = require('net');
 const http = require('http');
+const https = require('https');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -765,6 +766,60 @@ async function statusFor(site) {
 }
 
 /**
+ * Probes an arbitrary URL for the same two answers as probeSite().
+ *
+ * The container's own headers are not the whole story. Once a site is reached
+ * through a reverse proxy, the proxy's headers are what the browser sees - and
+ * a proxy that adds X-Frame-Options (NPMplus does, by default) blocks the
+ * preview even though the container itself allows framing. Checking the port
+ * directly would report everything as fine while the frame stays blank, so the
+ * address that will actually be framed is the address that gets probed.
+ */
+function probeUrl(target, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let parsed;
+    try { parsed = new URL(target); } catch (_) { return resolve({ answers: false }); }
+
+    const client = parsed.protocol === 'https:' ? https : http;
+    const req = client.request(
+      {
+        host: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname || '/',
+        method: 'HEAD',
+        timeout: timeoutMs,
+        // The panel is asking about its own sites, and a homelab certificate
+        // that has not renewed yet should surface as "this header blocks
+        // framing", not as a probe that silently failed.
+        rejectUnauthorized: false,
+        headers: { 'User-Agent': 'HostPanel-preview-probe' },
+      },
+      (res) => {
+        const xfo = String(res.headers['x-frame-options'] || '').toLowerCase();
+        const csp = String(res.headers['content-security-policy'] || '').toLowerCase();
+        const ancestors = (csp.match(/frame-ancestors([^;]*)/) || [])[1];
+
+        let framingRefusedBy = null;
+        if (xfo.includes('deny')) framingRefusedBy = `X-Frame-Options: ${xfo}`;
+        else if (xfo.includes('sameorigin')) framingRefusedBy = `X-Frame-Options: ${xfo}`;
+        else if (ancestors !== undefined && /'none'/.test(ancestors)) {
+          framingRefusedBy = "Content-Security-Policy: frame-ancestors 'none'";
+        } else if (ancestors !== undefined && /'self'/.test(ancestors) && !/https?:/.test(ancestors)) {
+          framingRefusedBy = "Content-Security-Policy: frame-ancestors 'self'";
+        }
+
+        res.resume();
+        resolve({ answers: true, status: res.statusCode, framingRefusedBy });
+      }
+    );
+    req.on('timeout', () => { req.destroy(); resolve({ answers: false }); });
+    req.on('error', () => resolve({ answers: false }));
+    req.end();
+    return undefined;
+  });
+}
+
+/**
  * Asks the site for its headers, to learn two things the UI cannot guess.
  *
  * Whether anything answers at all, and whether the site allows being shown in
@@ -852,6 +907,7 @@ module.exports = {
   rebuildSite,
   runInstall,
   needsDependencies,
+  probeUrl,
   startSite,
   stopSite,
   restartSite,

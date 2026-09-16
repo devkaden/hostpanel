@@ -129,6 +129,11 @@ router.get(
       }
     }
 
+    const domainList = sites.allDomains(site);
+    const previewDomainUrl = domainList.length
+      ? `http${site.ssl ? 's' : ''}://${domainList[0]}/`
+      : '';
+
     res.render('site', {
       title: site.name,
       site,
@@ -163,10 +168,13 @@ router.get(
        * fallback and is what gets shown before a domain is configured.
        */
       previewUrl: getSetting('host_ip') ? `http://${getSetting('host_ip')}:${site.port}/` : '',
-      previewDomainUrl: (() => {
-        const list = sites.allDomains(site);
-        return list.length ? `http${site.ssl ? 's' : ''}://${list[0]}/` : '';
-      })(),
+      previewDomainUrl,
+      // Checked against the address the browser will actually be asked to
+      // frame, which is the proxied one whenever a domain exists.
+      previewProbe: previewDomainUrl ? await sites.probeUrl(previewDomainUrl) : null,
+      // The origin to name in a frame-ancestors rule, taken from the request so
+      // it is right whether the panel is reached by IP or through the proxy.
+      panelOrigin: `${req.protocol}://${req.get('host')}`,
       config,
       hostShell: terminal.hostShellAvailable(),
       owners:

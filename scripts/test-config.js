@@ -423,6 +423,17 @@ console.log('\nsystem packages and unreachable apps');
     /framingRefusedBy/.test(sitesSrc) && /x-frame-options/.test(sitesSrc));
   check('and frame-ancestors counts too',
     /frame-ancestors/.test(sitesSrc));
+  // The proxy in front of a site adds its own headers, so probing the
+  // container's port would report everything as fine while the frame stays
+  // blank. NPMplus adds X-Frame-Options by default.
+  check('the address that will be framed is the address that gets probed',
+    /function probeUrl/.test(sitesSrc) && /previewProbe/.test(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'sites.js'), 'utf8')
+    ));
+  check('and a proxy-added header is named as the proxy, not the site',
+    /Your reverse proxy is adding it/.test(view));
+  check('with the exact rule to add', /proxy_hide_header X-Frame-Options/.test(view));
+
   check('mixed content is handled by switching to the domain',
     /location\.protocol === 'https:'/.test(view) && /PREVIEW_DOMAIN_URL/.test(view));
   check('and explained when there is no domain to switch to',

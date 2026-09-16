@@ -1,111 +1,71 @@
-# HostPanel
+<p align="center">
+  <img src="src/public/logo.svg" width="72" height="72" alt="HostPanel">
+</p>
 
-A self-hosted web hosting control panel in the spirit of CloudPanel, built for a
-homelab that already runs **NPMplus**. Every site is its own Docker container;
-the panel creates it, publishes it on a host port, and asks NPMplus to reverse
-proxy your domain at that port and issue the Let's Encrypt certificate.
+<h1 align="center">HostPanel</h1>
 
-**Site types:** static/HTML, PHP, WordPress (with its own MariaDB), Node.js.
+<p align="center">
+  A self-hosted web hosting control panel for a homelab.<br>
+  Every site is its own Docker container, with reverse proxy and HTTPS handled for you.
+</p>
 
-**Included:** multi-user logins with roles, a file manager with uploads and an
-inline editor, a browser shell into any container, live logs, per-site scheduled
-tasks, and full NPMplus proxy + SSL automation.
-
-**Built to hand to someone else:** a guided first-run setup, a Simple/Advanced
-toggle that hides Docker internals until they are wanted, inline help on every
-non-obvious field, light and dark themes, and a configurable name, logo and
-accent colour.
-
-**Repository:** <https://github.com/devkaden/hostpanel>
+<p align="center">
+  <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
+  <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
+  <img src="https://img.shields.io/badge/tests-282-3fbf7f" alt="282 tests">
+</p>
 
 ---
 
+Create a site, give it a domain, and HostPanel builds the container, publishes
+it on a host port, and asks **NPMplus** (or Nginx Proxy Manager) to reverse
+proxy the domain and issue the Let's Encrypt certificate — in one step.
+
+**Site types:** static/HTML · PHP · WordPress (with its own MariaDB) · Node.js
+
+## Features
+
+- **File manager** — drag-and-drop uploads including whole folders, an editor
+  with syntax highlighting, image preview, zip extraction, drag-to-move
+- **Browser shell** into any container, which still works when the site is down
+- **Live logs** — container output plus the site's own access and error logs
+- **Scheduled tasks** per site, with the last run's output kept
+- **Multi-user** — administrators see everything, standard users see their own
+  sites, with per-user site quotas
+- **Two-factor authentication** — TOTP, optional or required by role, with
+  single-use recovery codes
+- **Node.js that just works** — dependencies install themselves on first start,
+  and extra programs like `ffmpeg` or `yt-dlp` are a field in the site settings
+- **Built to hand to someone else** — a first-run setup guide, a Simple/Advanced
+  toggle that hides Docker internals, inline help, light and dark themes, and a
+  configurable name, logo and accent colour
+
 ## Install
 
-On a fresh Debian 12/13 (or Ubuntu 22.04+) LXC or VM:
+On a fresh Debian 12/13 or Ubuntu 22.04+ LXC or VM:
 
 ```bash
 git clone https://github.com/devkaden/hostpanel.git
 cd hostpanel
-sudo ./install.sh     # already root? just ./install.sh
+sudo ./install.sh
 ```
 
 The installer sets up Node.js 22, Docker Engine, the panel and a systemd unit,
 then prints the generated admin password (also written to
-`/opt/hostpanel/data/initial-admin-password.txt`). Open
-`http://<vm-ip>:8890`, sign in, and change the password when prompted.
+`/opt/hostpanel/data/initial-admin-password.txt`).
 
-> **Proxmox LXC note:** running Docker inside an unprivileged container needs
-> `nesting=1` and `keyctl=1` on the container. In the Proxmox UI that is
-> Options → Features. A VM avoids the issue entirely and is the safer choice if
-> you have the RAM.
+Open `http://<host-ip>:8890` and sign in.
 
-### Connect NPMplus
+> **Proxmox LXC:** Docker inside an unprivileged container needs `nesting=1` and
+> `keyctl=1` (Options → Features). A VM avoids the issue entirely.
 
-Go to **Settings** and fill in:
-
-| Field | Value |
-|---|---|
-| NPMplus URL | e.g. `https://npm.kjserver.net:81` — the admin UI, no trailing slash |
-| Admin email | the NPMplus login you use |
-| Admin password | that login's password |
-| Let's Encrypt email | where expiry notices go |
-| Host IP | the address NPMplus should forward traffic to |
-
-Press **Test connection**. It probes in three steps and tells you which one
-failed:
-
-1. **Reaching the API** — `GET /api` should return `{"status":"OK", …}`
-2. **Signing in** — `POST /api/tokens`
-3. **Reading proxy hosts** — `GET /api/nginx/proxy-hosts`
-
-### A note on NPMplus authentication
-
-Current NPMplus (2.15.x and later) does **not** return a JWT in the response
-body and does **not** accept an `Authorization: Bearer` header. `POST
-/api/tokens` answers `{"expires": "…"}` and puts the signed token in an
-httpOnly cookie named `__Host-Http-token`. The panel keeps a cookie jar and
-replays it on every call.
-
-Older NPM and NPMplus builds returned `{"token": "…"}` and took a Bearer
-header. That path still works and is used automatically when a token is present
-in the body, so the panel handles both generations.
-
-The `meta` object on a certificate request differs too: NPMplus accepts only
-`dns_challenge` (plus DNS-provider keys) and takes the ACME account email from
-its own configuration, while classic NPM requires `letsencrypt_agree` and the
-email per request. The panel sends the shape that matches whichever it is
-talking to, and falls back to the other if the first is rejected. The
-**Let's Encrypt email** field in Settings is therefore only used by classic NPM.
-
-Two accounts the panel cannot use:
-
-- **TOTP enabled** — sign-in returns `{"requiresTotp": true}` and a challenge
-  cookie that needs a six-digit code. Use a dedicated API account without TOTP.
-- **OIDC-only** — if `GET /api` reports `"password": false` and `"oidc": true`,
-  there is no local password to authenticate with.
-
-If NPMplus sits behind another reverse proxy, that proxy must not strip
-`Set-Cookie` or the panel never receives a session.
-
-You can exercise the whole client against a simulated NPMplus without touching
-your real one:
+### Updating
 
 ```bash
-npm run test:npmplus
+cd ~/hostpanel && git pull && ./install.sh
 ```
 
-**Host IP** is the one people get wrong. It must be an address the NPMplus host
-can reach this panel's host on. If NPMplus runs on the same machine, the LAN IP
-is right (not `127.0.0.1`, since NPMplus is itself in a container). The Detect
-button guesses it from the network interfaces.
-
-Tick **Manage reverse proxy hosts automatically** and creating a site with a
-domain will, in one step: create the container, create the NPMplus proxy host
-pointing at `http://<host-ip>:<site-port>`, request a certificate for the
-domains, and re-attach it with SSL forced and websockets allowed.
-
----
+Your database, `.env` and site files are untouched. The service restarts itself.
 
 ## How it fits together
 
@@ -114,600 +74,239 @@ domains, and re-attach it with SSL forced and websockets allowed.
         │
         ▼
    ┌─────────┐   http://<host-ip>:21000   ┌──────────────────┐
-   │ NPMplus │ ─────────────────────────▶ │ hp-myapp         │  ← Docker
+   │ NPMplus │ ─────────────────────────▶ │ hp-mysite        │  ← Docker
    │  :443   │   proxy host + LE cert     │ nginx/php/node   │
    └─────────┘                            └──────────────────┘
         ▲                                          ▲
-        │ REST API (tokens, proxy-hosts, certs)    │ Docker socket
+        │ REST API                                 │ Docker socket
         └────────────── HostPanel :8890 ───────────┘
 ```
 
-Each site gets:
+Each site gets its own directory:
 
 ```
 /opt/hostpanel/data/sites/<name>/
-  app/    ← your files (the container's web root or /app)
-  conf/   ← nginx-site.conf or php-custom.ini, editable, never overwritten
-  logs/   ← access.log / error.log from inside the container
-  db/     ← MariaDB data, WordPress only (hidden from the file manager)
+  app/    your files — the container's web root or /app
+  conf/   nginx-site.conf or php-custom.ini, editable, never overwritten
+  logs/   access.log and error.log from inside the container
+  db/     MariaDB data (WordPress only)
 ```
 
-Host ports are allocated from 21000–21999. The panel keeps state in
+Host ports come from 21000–21999. State lives in
 `/opt/hostpanel/data/hostpanel.db` (SQLite).
-
-### What each site type runs
 
 | Type | Image | Notes |
 |---|---|---|
-| Static | `nginx:alpine` | SPA-friendly `try_files`, gzip, cache headers preconfigured |
-| PHP | `php:8.4/8.3/8.2/8.1-apache` | `mod_rewrite` on, `php-custom.ini` editable |
-| WordPress | `wordpress:php8.3-apache` + `mariadb:11` | DB credentials generated; HTTPS-behind-proxy handled in `WORDPRESS_CONFIG_EXTRA` |
-| Node.js | `node:24/22/20-bookworm-slim` | Your install and start commands; `PORT` injected |
+| Static | `nginx:alpine` | SPA-friendly `try_files`, gzip, cache headers |
+| PHP | `php:8.1–8.4-apache` | `mod_rewrite` on, `php-custom.ini` editable |
+| WordPress | `wordpress:php8.3-apache` + `mariadb:11` | Credentials generated, HTTPS-behind-proxy handled |
+| Node.js | `node:20/22/24-bookworm-slim` | Your install and start commands, `PORT` injected |
 
-**Node dependencies install themselves.** Uploading a project without
-`node_modules` is the normal way to deploy, not a mistake, so starting or
-restarting a Node site with a `package.json` and no `node_modules` runs the
-install first and then starts. Without that the site is a dead end: the
-container exits immediately with `Cannot find module`, and a shell cannot be
-opened into a container that is not running — the one moment a shell is most
-needed is the one moment the usual route cannot provide it.
+## Connecting NPMplus
 
-The install runs in a throwaway container sharing the same `/app` mount, so an
-app that crashes on start can still have its dependencies installed. A failing
-install is reported as a failure rather than quietly followed by a start that
-cannot work.
+Settings → Reverse Proxy. Fill in the URL, an admin login, and the **Host IP**
+NPMplus should forward traffic to — that last one is the field people get
+wrong. It must be an address the NPMplus host can reach *this* host on, so if
+NPMplus runs on the same machine it is the LAN IP, not `127.0.0.1`.
 
-**Extra programs.** Node and PHP images are deliberately minimal, so an app
-that shells out to `ffmpeg`, `yt-dlp`, `imagemagick` or `git` finds nothing
-there. A site's settings have an **Extra programs** field — space separated —
-and pressing **Apply changes** bakes them into an image of that site's own,
-leaving the shared base image untouched. Installing them into a running
-container instead would work exactly once: the next rebuild recreates it from
-the base image and they are gone. `yt-dlp` is fetched from its own releases
-rather than apt, because the packaged version lags and a stale copy is a broken
-one — specifically the `yt-dlp_linux` build for the container's architecture,
-since the plain `yt-dlp` asset is a Python zipapp and a slim Node image has no
-Python: it downloads and chmods happily, then fails at the first run. The build
-runs `yt-dlp --version` before committing, so "installed" means "runs", and
-prints which of the requested programs ended up on `PATH`.
+**Test connection** probes in three steps and names the one that failed.
 
-Rebuilding is skipped when the package list has not changed, so pressing
-**Apply changes** to alter a port does not reinstall ffmpeg.
+Tick **Manage reverse proxy hosts automatically** and creating a site with a
+domain will, in one go: build the container, create the proxy host, request a
+certificate, and re-attach it with SSL forced and websockets allowed.
 
-**A blank preview gets explained.** If the container is running but nothing
-answers on the site's port, the site page says so and names the two causes that
-account for nearly every instance: an app listening on `127.0.0.1` (inside a
-container that means "this container only" — it has to bind `0.0.0.0`), or an
-app listening on a different port than **Internal port** is set to. The panel
-sets `PORT` in the environment for Node sites; apps that hard-code a port need
-the setting changed to match.
+<details>
+<summary>NPMplus authentication differs from classic NPM</summary>
 
-**The shell works when the site is down.** If the container is stopped or
-exited, the panel opens a temporary container with the same files mounted and
-gives you a shell there. Changes are kept, because it is the same directory;
-the site itself stays stopped until you start it.
+NPMplus 2.15+ does not return a JWT and does not accept `Authorization: Bearer`.
+`POST /api/tokens` answers `{"expires": "…"}` and puts the token in an httpOnly
+`__Host-Http-token` cookie. The panel keeps a cookie jar and replays it.
 
----
+Older builds returned `{"token": "…"}` and took a Bearer header; that path still
+works and is chosen automatically.
 
-## Using it
+Certificate requests differ too: NPMplus takes the ACME email from its own
+configuration and rejects `letsencrypt_email`, while classic NPM requires it.
+The panel sends whichever shape matches and falls back on rejection.
 
-**Creating a site.** Name, type, domain, done. Watch the build output stream
-live on the site page. Without a domain the site is still reachable at
-`http://<host-ip>:<port>` for testing.
+Two account types the panel cannot use: one with TOTP enabled (use a dedicated
+API account), and an OIDC-only account with no local password.
 
-**Files.** A proper file manager:
+</details>
 
-- **Drag anywhere to upload** — drop files *or whole folders* onto the page and
-  the directory structure is recreated, with a progress bar. Dropping a project
-  folder offers to skip `node_modules`, `.git` and similar, since those are
-  rebuilt on the server anyway.
-- **Drag to move** — drag rows onto a folder, or onto a breadcrumb to move up a
-  level. Multi-select with checkboxes, shift-click for a range.
-- **Filter and sort** — filter the current folder, sort by name, size or date.
-  Folders always stay on top; the sort is remembered.
-- **Edit in place** — syntax highlighting and line numbers for HTML, CSS, JS,
-  PHP, Python, shell, SQL, YAML, Markdown, nginx and Dockerfiles. Ctrl/Cmd+S
-  saves, Ctrl/Cmd+F finds, and closing with unsaved changes asks first. If
-  CodeMirror is unavailable the editor degrades to a plain textarea that still
-  works.
-- Extract zips, download a file or a folder as a zip, rename, chmod, bulk
-  delete.
+## Node.js sites
 
-Uploads are sent as raw `PUT` requests, one file at a time, two in parallel.
-There is no multipart parsing anywhere in the panel: a multipart parser that
-hits any limit tears the request stream down mid-flight, and the browser only
-ever learns that the form "ended unexpectedly" — with no indication of which
-file or which limit. A raw body has no form to end, so a failure names the file
-and the reason.
+**Dependencies install themselves.** Uploading a project without `node_modules`
+is the normal way to deploy, so starting a Node site with a `package.json` and
+no `node_modules` runs the install first. Without it the site is a dead end: the
+container exits with `Cannot find module`, and you cannot open a shell into a
+container that is not running.
 
-Files dropped as a folder are **read into memory before the first upload
-starts**, not opened one at a time as the queue reaches them. A browser keeps a
-dropped directory readable for a short window and then takes the access back.
-Past that point opening a file either fails — the upload aborts mid-body, and
-the server sees only a connection that ended early — or never returns an answer
-at all, which leaves the queue waiting on a callback that is never coming. Both
-of those were real. Reading during the window the access exists removes the
-dependency on it, and every read is wrapped in its own timeout so nothing can
-hang regardless. The read is capped at 20 MB per file and 250 MB in total so a
-large folder cannot exhaust the tab; anything bigger falls back to its handle.
+**Extra programs.** Node and PHP images are minimal, so an app that shells out
+to `ffmpeg`, `yt-dlp`, `imagemagick` or `git` finds nothing. The site's settings
+have an **Extra Programs** field; pressing Apply Changes bakes them into an
+image of that site's own. `yt-dlp` comes from its own releases rather than apt,
+and the build runs `yt-dlp --version` before committing, so "installed" means
+"runs".
 
-A file the browser cannot open is reported by name, before the upload starts
-rather than after a timeout, and once three in a row fail the rest are failed
-immediately — the folder itself has gone, and waiting out a ten second timeout
-on each of two hundred files would take half an hour to reach a conclusion
-already obvious after three.
+**Bind to `0.0.0.0`.** Inside a container, `localhost` means "this container
+only" and nothing outside can reach it:
 
-**Safari loses access to a dropped folder almost immediately**, far faster than
-Chrome, so dragging a folder there is unreliable no matter how the reading is
-arranged. The **Upload folder** button goes through the file picker instead,
-which works consistently in every browser, and is also the answer for files
-stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
-
-### Why a preview can be blank
-
-Three different things produce an identical white rectangle, with no error in
-the console and nothing in the logs. The panel now distinguishes them:
-
-1. **The site refuses to be framed.** `X-Frame-Options: DENY` or
-   `frame-ancestors 'none'` tells every browser not to embed the page. Express
-   with Helmet sends it by default, so most Node apps land here. The panel
-   detects it and explains, because this is the site's own decision and nothing
-   the panel does can or should override it.
-2. **Mixed content.** A panel served over HTTPS cannot embed a plain-HTTP
-   frame, and the browser blocks it silently. This is the state as soon as the
-   panel itself sits behind the reverse proxy — which is why a preview can work
-   by IP address and not by domain. When the site has a domain of its own the
-   panel switches the preview to it; otherwise it says so.
-3. **The port is not reachable from your machine.** The panel and the sites are
-   on different ports, so a firewall rule that allows one can block the others.
-   The page asks your browser directly rather than assuming that reaching the
-   site from the server means you can reach it too.
-
-### If something breaks in one browser only
-
-Try `DISABLE_CSP=true` in `/opt/hostpanel/app/.env`, restart, and test again:
-
-```bash
-echo 'DISABLE_CSP=true' >> /opt/hostpanel/app/.env
-systemctl restart hostpanel
-```
-If the problem disappears, the Content-Security-Policy is the cause. This is
-worth knowing because a CSP refusal does not announce itself as one: Safari
-reports it as `NotReadableError` or `WebKitBlobResource error 4`, which reads
-exactly like the operating system denying the browser access to your files.
-
-That is not hypothetical. The policy originally shipped without `blob:`, and
-because Safari applies CSP to the internal blob load that backs a file upload —
-where Chrome does not — uploads failed in Safari alone, with an error that
-pointed squarely at macOS permissions. Turn the header back off once you have
-your answer.
-
-### When the browser will not read your files at all
-
-A `NotReadableError` on every file means the browser is being refused access to
-your disk, before anything reaches the network. macOS grants this per folder,
-so it commonly fails for files in one place and works for the same files moved
-elsewhere — **Downloads is its own permission, separate from Desktop and
-Documents**, which is why a project unzipped into `~/Downloads` can fail while
-everything you uploaded before worked. Fix it in **System Settings → Privacy &
-Security → Files and Folders → Safari**, or just move the project out of
-Downloads. Files kept in iCloud, OneDrive or Dropbox must also be downloaded
-locally.
-
-No amount of care in the panel fixes a file the browser will not open, so the
-file manager also offers **Copy from your computer**, which hands you an rsync
-command pointed at the site's directory:
-
-```bash
-rsync -av --exclude node_modules --exclude .git ~/path/to/mysite/ root@<host-ip>:/opt/hostpanel/data/sites/mysite/app/
+```js
+app.listen(process.env.PORT || 3000, '0.0.0.0')
 ```
 
-That runs as you, over ssh, and is the faster option for a real project anyway.
+## Security
 
-**Files are read into memory before the request, never handed over as file
-handles.** This is the single thing that makes uploads work in Safari. Passing
-the browser's own `File` object to the request is the obvious approach and it
-is what fails: Safari reaches `readyState 1` and then never sends a byte — no
-progress event, no error, nothing to catch — and the `fetch` retry answers "the
-network connection was lost". The identical bytes as an in-memory `Blob` upload
-in milliseconds. Reading them first turns an unreportable hang into an ordinary
-rejected promise that can name the file and the reason.
+The panel reaches the Docker socket, which is equivalent to root on the host.
+Give administrator only to people you would give root to; everyone else gets a
+standard account.
 
-Dropped files are read during traversal, because their access expires. Picked
-files are read one at a time as each is sent, so a large selection is never all
-in memory at once, and the bytes are released as soon as the file is away.
-Anything over 64 MB is passed through as a handle rather than buffered — reading
-a 500 MB file into a tab is worse than the problem it solves.
-
-**A file input is cleared only after its upload has finished.** Resetting an
-`<input type="file">` is normal practice, so that picking the same file twice in
-a row fires `change` again — but in WebKit the `File` objects an input produced
-stop being readable the moment that input is reset. Clearing it while the
-upload was still running revoked access to the very files being sent, and every
-read came back `NotReadableError` while identical bytes generated in the page
-uploaded perfectly.
-
-Each file goes out with `XMLHttpRequest` first, because that is the only way to
-report progress, and falls back to `fetch()` on failure. If a request neither
-succeeds nor fails within 20 seconds it is abandoned rather than left holding
-the queue. That guard watches the byte counter rather than the events, because
-Safari fires a progress event with `loaded = 0` and then stalls — treating "an
-event arrived" as progress disarms the very guard that is needed.
-
-Both ends have a timeout, because a request that never settles is worse than
-one that fails: the socket stays tied up, and browsers allow only about six
-connections per host, so later uploads queue behind it and the whole thing
-looks frozen. The server drops a receive that stalls for 60 seconds; the
-browser gives a file 120 seconds, retries it once, then reports that file and
-moves on to the next.
-
-If an upload misbehaves, the server logs every transfer, not only the failures
-— "no log lines" is otherwise ambiguous between a request that never arrived
-and one that sailed through:
-
-```bash
-journalctl -u hostpanel -f | grep upload
-```
-
-Each file produces a `<- start` line with the declared size and then either
-`-> ok` with the bytes and duration, or `-> FAILED` with how many of the
-declared bytes actually arrived. That last number is the useful one: `0 of
-4211` means the browser opened the request and then sent nothing, which is a
-browser-side problem, while `4000 of 4211` is a connection that died in flight.
-
-To take the browser out of the picture entirely, run the live self-test on the
-panel host:
-
-```bash
-cd /opt/hostpanel/app && npm run test:upload-live
-```
-
-Note the directory: `/opt/hostpanel/app` is the copy the panel actually runs,
-with the dependencies and the database. Your git checkout has neither, and the
-script says so rather than throwing a missing-module trace.
-
-From the other end, the file manager has a **Test uploads** button next to the
-size limit. It uploads 1 byte, 64 KB and 2 MB of data generated in the page —
-no file on disk is involved — and then deletes them. That separates the two
-failures that look identical from the outside: if it passes and real uploads
-still hang, the transport is fine and the browser cannot read your files; if it
-hangs too, no file was ever the problem and something between the browser and
-the panel is dropping the request body.
-
-It mints its own session, uploads five real files (empty, tiny, nested, 1 MB,
-8 MB) to a real site over the real HTTP port, checks an oversized one is
-refused, and cleans up after itself. If it passes, the server is fine and the
-problem is between the browser and that port.
-
-Every path is resolved against the site root. Traversal, symlink escapes and
-zip-slip are rejected, and each segment of an uploaded folder path is validated
-separately, so a crafted `webkitRelativePath` cannot write outside the site.
-
-**Shell.** A real terminal into the container — `docker exec` behind a
-websocket, with resize, full-screen programs and tab completion. WordPress
-sites can also open a shell in the database container.
-
-The **host shell** (admins only) is a login shell on the panel host. It needs
-the optional `node-pty` package; if it did not build during install, container
-shells still work. Turn it off entirely in Settings.
-
-**Logs.** Container stdout/stderr, plus the nginx or Apache access and error
-logs. "Follow" streams new lines live.
-
-**Cron.** Five-field cron expressions in UTC. Jobs run with `sh -lc` inside the
-site container on the panel's own scheduler — no host crontab is touched. Run
-any job manually and see its output immediately.
-
-For WordPress, disable the built-in pseudo-cron in `wp-config.php`:
-
-```php
-define('DISABLE_WP_CRON', true);
-```
-
-then schedule `php /var/www/html/wp-cron.php` every 5 minutes.
-
-**Users.** Admins see and manage everything. Standard users only see the sites
-they own, with an optional site limit. New and reset passwords must be changed
-at first login, and resetting a password ends that user's sessions immediately.
-
-**Settings that need a rebuild.** Domain and notes apply immediately. Runtime
-version, ports, environment variables and resource limits change the container
-definition, so hit **Apply changes** after saving. It recreates the container and
-keeps every file.
-
----
-
-## Making it yours
-
-**Simple and Advanced.** The toggle in the top bar switches between the two.
-Simple hides container names, images, resource limits, environment variables and
-the advanced Docker options; Advanced shows everything. The choice is per person
-and remembered in their browser. Set the default for new visitors under
-Settings → Appearance.
-
-**Inline help.** The small `?` next to a field explains it in one sentence, on
-hover or keyboard focus.
-
-**Setup guide.** A new install sends the first administrator through a
-three-step wizard: this server's address, the reverse proxy, and a first site.
-Re-run it any time from Settings → Setup guide.
-
-**Theme and branding.** Light, dark, or match the device. The panel name, a logo
-and the accent colour are all configurable.
-
-**Preferences follow the person, not the browser.** The theme and Simple/Advanced
-toggles are saved against the signed-in account, so they survive a refresh, a
-different device and the next login. The administrator's setting is the default
-for anyone who has not chosen for themselves.
-
-**Live preview.** Each site page embeds the running site, with desktop, tablet
-and phone widths. The preview hits the container directly by port, so it works
-before DNS or the reverse proxy exist, and always shows *that* site rather than
-whatever the domain currently resolves to.
-
-### Ports
-
-Everything is adjustable, and nothing has to be:
-
-| Port | Where | Notes |
-|---|---|---|
-| The panel's own | Settings → Panel | Overrides `.env`. Restart to apply. |
-| The pool for new sites | Settings → Panel | Defaults to 21000-21999. |
-| A site's host port | Site → Settings (Advanced) | Checked live against other sites *and* anything already listening. Apply changes afterwards, and update your proxy. |
-| A site's internal port | Site → Settings (Advanced) | The port the server inside the container listens on. Node apps get it as `PORT`; nginx and Apache have it written into their config. |
-
-### Advanced container options
-
-Per site, under Advanced:
-
-- **Custom image** — replaces the default image for that site type
-- **Extra folders** — one per line as `folder:/path/in/container`, restricted to
-  paths inside that site's own directory
-- **Container labels** — JSON, for Watchtower, Traefik and similar. Labels
-  cannot overwrite the `hostpanel.*` ones the panel relies on.
-- **Docker network** — blank gives the site its own private network; name an
-  existing one to place it alongside other containers. A network the panel did
-  not create is never deleted.
-
-### Presets
-
-**Save as preset** on any site stores its runtime, commands, limits, environment
-variables and container options. The next site can start from it. Names,
-domains, ports and database credentials are never included, since those must be
-unique. Manage presets under Settings.
-
-### Generated config files
-
-The nginx and Apache configs in each site's `conf/` folder are generated, then
-yours. The panel keeps a hash of what it wrote and only rewrites a file while it
-still matches — the moment you edit one, it stops touching it. Config files that
-predate this tracking are adopted as yours and never overwritten.
-
----
-
-## Security notes, honestly
-
-**The panel runs as root.** It needs the Docker socket, and it chowns site files
-to the uids the site containers run as. Docker socket access is already
-equivalent to root on the host, so a separate service user would give the
-appearance of isolation without the substance. What this means in practice:
-
-- Put the panel on a LAN-only port, or behind NPMplus with its own domain and
-  an access list. Do not expose `:8890` to the internet.
-- The 21000–21999 site ports should be reachable from NPMplus and nothing else.
-  If NPMplus is on the same host, set `PUBLISH_ADDRESS` in `.env` to the LAN IP
-  or `127.0.0.1` so the ports are not bound on every interface.
-- Only give admin to people you would give root to. A standard user is confined
-  to their own sites, but a shell inside a container is still a shell.
-
-### Dialogs
-
-The panel never uses `window.alert`, `confirm` or `prompt`. Every confirmation
-is an in-app dialog matching the rest of the interface, which also means a
-delete prompt can list exactly what it is about to remove, and a generated
-password can come with a Copy button.
-
-### What is hardened
-
-| Area | Measure |
+| Area | What is in place |
 |---|---|
-| Passwords | bcrypt, cost 12; forced change at first login; dummy hash on unknown users so timing does not reveal which accounts exist |
-| Sessions | httpOnly, SameSite=Lax, regenerated on login (no session fixation); killed on disable or password reset |
-| CSRF | Token on every mutating request, compared in constant time |
-| Brute force | Two buckets — 8 tries per username+IP and 20 per username across all IPs — over a 10-minute window |
-| XSS | All template output escaped; data embedded in `<script>` blocks is escaped so `</script>` in a cron command or job output cannot break out |
-| Redirects | The post-login `next` parameter must be a same-origin path; `//evil.com` and `/\evil.com` are rejected |
-| Files | Traversal, symlink-escape and zip-slip guards; downloads always served as attachments |
-| Headers | CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `SECURE_COOKIES=true` |
+| Passwords | bcrypt, cost 12, constant-time comparison, configurable minimum length |
+| Two-factor | TOTP (RFC 6238), optional or required by role, single-use recovery codes |
+| Sessions | httpOnly, SameSite=Lax, server-side store; invalidated on any credential change |
+| Throttling | 8 failures per user+IP, 20 per account, 30 per IP, persisted so a restart does not clear it |
+| CSRF | Double-submit token on every state-changing request |
+| Files | Path traversal, zip-slip and symlink escapes rejected; every path resolved against the site root |
+| Headers | CSP, `nosniff`, `frame-ancestors 'none'`, no referrer |
 | Secrets | Database `0600`, data directory `0750`, `.env` `0600` |
-| Two-factor | TOTP (RFC 6238), optional or required per role, with single-use recovery codes |
-| Generated passwords | `crypto.randomBytes` with rejection sampling (no modulo bias) |
-| Audit | Every action logged with user, target and IP |
 
-Run the checks yourself:
+The two-factor flow is worth describing because the failure modes are subtle:
+the password step never creates a signed-in session, so there is no
+half-authenticated state to walk through; the code step is rate limited exactly
+like the password step; recovery codes are single use and stored hashed; and
+nothing is switched on until a code from the app checks out, so a mistyped key
+cannot lock anyone out. `npm run test:totp` checks the implementation against
+the RFC 4226 and RFC 6238 test vectors.
 
-```bash
-npm test            # everything below, in order
-npm run test:security
-npm run test:npmplus
-npm run test:config
-npm run test:uploads
-```
+**Settings → Security** lists how the install actually stands — secure cookies,
+session secret, `TRUST_PROXY` correctness, host shell, and which administrators
+have not set up two-factor.
 
-`test:uploads` lifts the file-reading code straight out of the file manager and
-runs it against a fake directory API that reproduces each way a browser drops
-access to a dropped folder — refusing the read, and never answering at all — so
-the hang and the mid-body abort both stay fixed.
-
-All of it runs without dependencies installed and without touching Docker or
-your real NPMplus.
-
-## Exposing the panel to the internet
-
-The sites are meant to be public. The panel is a different question, and worth
-deciding deliberately rather than by default.
-
-**What an account can reach.** An administrator account can reach the Docker
-socket through this panel, which is equivalent to root on the host. Give
-administrator only to people you would give root to; everyone else gets a
-standard account, which sees only their own sites.
-
-**Two-factor authentication.** Settings → Security turns it on, either for
-administrators or for everyone. Covered accounts are walked through setup at
-their next sign-in and cannot use the panel until it is done.
-
-- Standard TOTP (RFC 6238), so any authenticator app works. The implementation
-  has no dependencies and is checked against the RFC's own test vectors —
-  `npm run test:totp`.
-- Nothing is switched on until a code from the app checks out, so a mistyped
-  key or a phone with a wrong clock cannot lock anyone out.
-- Ten single-use recovery codes are shown once and stored hashed, like
-  passwords. An administrator can clear someone's second factor from the Users
-  page for a lost phone; that is deliberately not self-service, because a
-  "lost my authenticator" link anybody with a password can use is not a second
-  factor.
-- The password step never creates a signed-in session. Until the code is
-  verified the session holds only a user id and a timestamp that expires after
-  five minutes, so there is no half-authenticated state to walk through.
-- The code step is rate limited exactly like the password step. Six digits with
-  unlimited guesses is not a second factor.
-
-**Sessions end when credentials change.** Changing a password, turning
-two-factor on or off, or an administrator resetting either, invalidates every
-other session for that account. A password changed after a scare is worthless
-if the session created with the old one is still signed in somewhere.
-
-**Login throttling is on disk, not in memory.** Eight failures per
-username+address, twenty per account, thirty per address, in a ten minute
-window. Kept in the database because in-memory counters are cleared by a
-restart — and this panel restarts itself whenever it updates.
-
-**Each person manages their own account.** The account menu has **Your
-Account**: their details, password, two-factor and interface preferences, plus
-a count of other browsers they are signed in on and a button to end those
-sessions. Role, site quota and active state are not editable there — a
-self-service page that writes them is a privilege escalation with a friendly
-label — so those stay on the Users page for administrators.
-
-**Settings → Security lists how the install actually stands**: whether secure
-cookies are on, whether the session secret is still the shipped default,
-whether `TRUST_PROXY` matches reality, whether the host shell is open, and
-which administrators have not set up two-factor yet. It is a list of facts
-rather than a score, because a panel reachable only over a VPN genuinely does
-not need all of it.
+### Exposing the panel to the internet
 
 Behind a reverse proxy, set both of these in `/opt/hostpanel/app/.env`:
 
 ```bash
 SECURE_COOKIES=true   # session cookies never sent over plain HTTP
-TRUST_PROXY=true      # believe X-Forwarded-For, so rate limiting counts the real client
+TRUST_PROXY=true      # believe X-Forwarded-For, so throttling counts the real client
 ```
 
 `TRUST_PROXY=true` is only correct if the panel is reachable *exclusively*
-through your proxy. If it is also reachable directly, anyone can forge the
-address the rate limiter counts against.
+through your proxy. If port 8890 is also open, anyone can forge the address the
+rate limiter counts against.
 
-**The honest caveat.** This panel has not had the adversarial attention that
-CloudPanel or Plesk have had. Two-factor, throttling and session invalidation
-raise the bar considerably, but the strongest single step is still to keep the
-panel off the public internet — a VPN or Tailscale costs nothing and removes
-the entire category of problem. Everything above is for when that is not an
-option.
+An honest caveat: this panel has not had the adversarial attention that
+CloudPanel or Plesk have. Two-factor, throttling and session invalidation raise
+the bar considerably, but keeping the panel behind a VPN removes the whole
+category of problem, and costs nothing.
 
-### Known limitations
+## Troubleshooting
 
-These are deliberate trade-offs, not oversights:
+<details>
+<summary>The site preview is blank</summary>
 
-- **Cron commands and the terminal execute arbitrary code inside a site's
-  container.** That is the feature. Anyone with access to a site can run
-  anything as root *in that container*.
-- **`TRUST_PROXY` defaults to `false`.** If the panel sits behind a reverse
-  proxy, set it to `true` so the lockout sees real client IPs — but only if the
-  panel is *not* also reachable directly, or a spoofed `X-Forwarded-For` would
-  defeat the lockout.
-- **The NPMplus password is stored in plaintext** in the panel's database. It
-  has to be replayed on every API call, so it cannot be hashed. Use a dedicated
-  NPMplus account rather than your personal admin login.
-- **The CSP allows `'unsafe-inline'` for scripts,** because the pages use inline
-  scripts. It still blocks framing, objects, foreign form posts and base-tag
-  injection.
-- **No 2FA on the panel itself.** Put it behind an NPMplus access list if you
-  need a second factor.
+Three different things produce an identical white rectangle. The panel now
+tells them apart and says which:
 
-If you put the panel itself behind NPMplus, set `SECURE_COOKIES=true` in
-`.env`. Websockets must be allowed on that proxy host for the terminal to work.
+1. **The site refuses to be framed.** `X-Frame-Options` or
+   `frame-ancestors 'none'`. Express with Helmet sends it by default — and so
+   does **NPMplus**, which means a site that frames fine on its port can still
+   be blocked once it goes through the proxy. The panel probes the address it
+   is about to frame, so it can tell you which of the two is responsible. For
+   NPMplus, open the proxy host → Advanced:
 
----
+   ```nginx
+   proxy_hide_header X-Frame-Options;
+   add_header Content-Security-Policy "frame-ancestors 'self' https://your-panel-domain" always;
+   ```
 
-## Operating it
+2. **Mixed content.** A panel on HTTPS cannot embed a plain-HTTP frame, and the
+   browser blocks it silently. The panel switches to the site's own domain when
+   there is one.
+
+3. **The port is not reachable from your machine.** The panel asks your browser
+   directly rather than assuming that reaching the site from the server means
+   you can reach it too.
+
+</details>
+
+<details>
+<summary>Uploads hang or fail</summary>
+
+Every transfer is logged, not only failures:
 
 ```bash
-systemctl status hostpanel
+journalctl -u hostpanel -f | grep upload
+```
+
+A failure reports how many of the declared bytes arrived. `0 of 4211` means the
+browser sent nothing — browser side. `4000 of 4211` means the connection died
+in flight.
+
+To take the browser out of the picture entirely:
+
+```bash
+cd /opt/hostpanel/app && npm run test:upload-live
+```
+
+That uploads five real files and downloads one over the real HTTP port, with no
+browser involved. If it passes, the server is fine.
+
+Files are read into memory before sending rather than handed over as file
+handles. Safari will accept a request with a disk-backed `File` body and then
+never send it, and the browser reports `NotReadableError` with no further
+explanation.
+
+</details>
+
+<details>
+<summary>Something breaks in one browser only</summary>
+
+Try turning the Content-Security-Policy off:
+
+```bash
+echo 'DISABLE_CSP=true' >> /opt/hostpanel/app/.env
 systemctl restart hostpanel
-journalctl -u hostpanel -f
 ```
 
-Locked out? On the host:
+If the problem disappears, the policy is the cause. This is worth knowing
+because a CSP refusal does not announce itself: Safari reports it as
+`NotReadableError` or `WebKitBlobResource error 4`, which reads exactly like
+the operating system denying the browser access to your files. Put the setting
+back once you have your answer.
+
+</details>
+
+<details>
+<summary>Docker is not responding</summary>
 
 ```bash
-cd /opt/hostpanel/app
-npm run reset-admin            # resets "admin"
-npm run reset-admin -- kaden   # resets that user, creating it if needed
+systemctl status docker
 ```
 
-Check the code parses before restarting after a manual edit:
+In an LXC container, Docker also needs nesting enabled on the container itself.
+
+</details>
+
+<details>
+<summary>Locked out of the panel</summary>
 
 ```bash
-npm run check
+cd /opt/hostpanel/app && npm run reset-admin
 ```
 
-**Backups.** Everything that matters is `/opt/hostpanel/data` — the SQLite
-database and every site directory. For WordPress, stop the site first or take a
-`mariadb-dump` from its shell rather than copying `db/` live.
+Generates a new password for `admin`, or for a named user with
+`npm run reset-admin -- username`.
 
-### Updating
+</details>
 
-From your clone on the panel host:
+## Configuration
 
-```bash
-cd ~/hostpanel
-git pull
-sudo ./install.sh     # already root? just ./install.sh
-```
-
-Re-running the installer is the update path. It rsyncs the new code over
-`/opt/hostpanel/app`, keeps your `.env` and everything in
-`/opt/hostpanel/data`, reinstalls dependencies and restarts the service.
-Running sites are untouched — their containers keep serving throughout.
-
-If you do not have a clone on the host (the panel is installed but the source
-is not), create one next to it:
-
-```bash
-cd ~
-git clone https://github.com/devkaden/hostpanel.git
-cd hostpanel
-sudo ./install.sh
-```
-
-Check it came back up:
-
-```bash
-systemctl status hostpanel
-curl -s localhost:8890/healthz
-```
-
-To verify the new code before installing it:
-
-```bash
-npm test
-```
-
----
-
-## Configuration reference
-
-`/opt/hostpanel/app/.env` — restart the service after editing.
+`/opt/hostpanel/app/.env` — restart the service after editing. Everything here
+can also be set in Settings, which takes precedence.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -715,62 +314,55 @@ npm test
 | `BIND_ADDRESS` | `0.0.0.0` | Interface the panel listens on |
 | `SESSION_SECRET` | generated | Signs session cookies |
 | `SESSION_HOURS` | `12` | Session lifetime |
-| `SECURE_COOKIES` | `false` | Set `true` when the panel is served over HTTPS |
+| `SECURE_COOKIES` | `false` | Set `true` when served over HTTPS |
+| `TRUST_PROXY` | `false` | Believe `X-Forwarded-For` |
 | `HOSTPANEL_DATA` | `/opt/hostpanel/data` | Database and site directories |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker endpoint |
 | `PORT_RANGE_START` / `_END` | `21000` / `21999` | Host ports for sites |
 | `PUBLISH_ADDRESS` | `0.0.0.0` | Interface site containers publish on |
 | `HOST_IP` | auto-detected | Address NPMplus forwards to |
 | `MAX_UPLOAD_MB` | `512` | Largest single upload |
-| `DISABLE_CSP` | `false` | Turns the Content-Security-Policy off. Debugging only — see below |
+| `DISABLE_CSP` | `false` | Debugging only |
 
----
-
-## Troubleshooting
-
-**apt 404s on `.deb` files during install** — the package index is stale and
-points at filenames a Debian point release has already replaced. The installer
-now retries this automatically; to clear it by hand:
+## Development
 
 ```bash
-rm -rf /var/lib/apt/lists/* && apt-get clean && apt-get update
+npm install
+npm run dev     # node --watch
+npm test        # everything below
 ```
 
-Then re-run `./install.sh` — it is safe to re-run at any point.
+| Command | What it covers |
+|---|---|
+| `npm run check` | Parses every `.js`, `.ejs` and inline `<script>` |
+| `npm run test:security` | Escaping, redirects, traversal, zip-slip, auth flow |
+| `npm run test:totp` | TOTP against the RFC 4226 and RFC 6238 vectors |
+| `npm run test:npmplus` | The NPMplus client against a simulated API |
+| `npm run test:config` | Ports, container specs, managed config files |
+| `npm run test:uploads` | The browser-side upload path against fake file APIs |
+| `npm run test:upload-live` | Real uploads and downloads against a running panel |
 
-**"Docker is not reachable"** — `systemctl status docker`. In an LXC, check
-nesting is enabled.
+Everything except `test:upload-live` runs with no dependencies installed and
+without touching Docker or a real NPMplus.
 
-**Certificate request fails** — the domain's DNS must already resolve to
-NPMplus and port 80 must reach it, because HTTP-01 validation happens there.
-The proxy host is still created and the site works over HTTP; use **Re-sync
-proxy + SSL** once DNS has propagated.
-
-**"Host IP is not set"** — fill it in under Settings. See the table above.
-
-**NPMplus test connection fails** — the message names the step. Failing at
-step 1 means the URL is not reaching the API (the admin interface is on port 81
-over HTTPS by default). Step 2 is the credentials, or one of the account
-limitations in the authentication note above. To see the raw exchange:
-
-```bash
-curl -sk https://<npmplus-host>/api
-curl -sk -i -X POST https://<npmplus-host>/api/tokens \
-  -H 'Content-Type: application/json' \
-  -d '{"identity":"you@example.com","secret":"yourpassword"}'
+```
+src/
+  index.js          express app, security headers, template locals
+  auth.js           passwords, sessions, throttling, 2FA policy
+  totp.js           RFC 6238, no dependencies
+  db.js             schema, migrations, settings
+  docker.js         container lifecycle via dockerode
+  sites.js          provisioning, lifecycle, probes
+  site-templates.js per-type images, container specs, config files
+  npmplus.js        proxy hosts and certificates
+  filemanager.js    path containment, uploads, zips
+  terminal.js       websocket shells
+  cron.js           scheduled tasks
+  icons.js          inline SVG icon set
+  routes/           one file per area
+  views/            EJS, no build step
 ```
 
-A healthy sign-in is a `200` whose body is `{"expires": "…"}` with a
-`set-cookie: __Host-Http-token=…` header. Note that `/api/tokens` is rate
-limited to 10 attempts per 5 minutes.
+## License
 
-**Site shows nginx's default page or a 502** — check the container is running
-on the site page, then read the container log. For Node, confirm the app binds
-`0.0.0.0` on `process.env.PORT` rather than `localhost`.
-
-**WordPress redirect loop** — usually a stale `WP_HOME`/`WP_SITEURL`. The panel
-sets both from the domain at container creation, so set the domain first and
-then rebuild.
-
-**Terminal won't connect** — if the panel is behind a proxy, that proxy must
-allow websocket upgrades. In NPMplus that is the "Websockets Support" toggle.
+MIT

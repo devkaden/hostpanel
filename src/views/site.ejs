@@ -107,15 +107,46 @@
       <div class="alert alert-warn" id="csp-note" style="display:none"></div>
       <div class="alert alert-warn" id="preview-note-live" style="display:none"></div>
 
-      <% if (live.framingRefusedBy) { %>
+<%
+  /* The header that blocks framing can come from the app or from the reverse
+     proxy in front of it. Both are worth naming, because the fix is in a
+     different place for each. */
+  const proxied = previewProbe && previewProbe.framingRefusedBy;
+  const refusedBy = proxied || live.framingRefusedBy;
+%>
+      <% if (refusedBy) { %>
         <div class="alert alert-info">
-          <strong>This site does not allow being shown in a frame.</strong>
-          It sends <code><%= live.framingRefusedBy %></code>, which tells every browser
-          to refuse to embed it. That is the site's own setting, not the panel's, and
-          nothing here can override it &mdash; a browser would show a blank rectangle
-          instead. Many frameworks send this by default; Express with Helmet is the
-          usual source. Use <strong>New tab</strong> to look at the site, or remove the
-          header in the site's own code if you want the preview to work.
+          <strong>This Site Cannot Be Shown in a Frame</strong>
+          <p>
+            The response carries <code><%= refusedBy %></code>, which tells every
+            browser to refuse to embed the page. Nothing the panel does can override
+            that &mdash; the browser would show a blank rectangle.
+          </p>
+          <% if (proxied && !live.framingRefusedBy) { %>
+            <p>
+              <strong>Your reverse proxy is adding it, not the site.</strong>
+              The container itself allows framing; the header appears only once the
+              request goes through the proxy. In NPMplus, open this proxy host, go to
+              the <strong>Advanced</strong> tab, and add:
+            </p>
+            <pre class="code-block">proxy_hide_header X-Frame-Options;
+add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" always;</pre>
+            <p class="muted small">
+              That keeps clickjacking protection for everyone else and allows this
+              panel specifically. Removing the header altogether would work too, but
+              gives the protection up for real visitors.
+            </p>
+          <% } else { %>
+            <p>
+              The site's own code is sending it. Express with Helmet does by default;
+              <code>frameguard: false</code>, or a CSP naming
+              <code><%= panelOrigin %></code> in <code>frame-ancestors</code>, allows
+              the preview.
+            </p>
+          <% } %>
+          <a class="btn" href="<%= previewDomainUrl || previewUrl %>" target="_blank" rel="noopener">
+            <%- icon('external') %><span>Open in a New Tab</span>
+          </a>
         </div>
       <% } else { %>
       <div class="preview-frame size-desktop" id="preview-frame">

@@ -10,12 +10,26 @@
 
   <% if (saved) { %><div class="alert alert-ok">Settings saved.</div><% } %>
 
-  <div class="grid grid-2">
-    <div>
+  <div class="settings-nav" role="tablist">
+    <button type="button" class="active" data-settings-tab="general">
+      <%- icon('settings') %><span>General</span>
+    </button>
+    <button type="button" data-settings-tab="security">
+      <%- icon('shield') %><span>Security</span>
+    </button>
+    <button type="button" data-settings-tab="proxy">
+      <%- icon('globe') %><span>Reverse Proxy</span>
+    </button>
+    <button type="button" data-settings-tab="system">
+      <%- icon('install') %><span>System</span>
+    </button>
+  </div>
+
+  <div class="settings-body">
       <form method="post" action="/settings">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
-        <div class="card">
+        <div class="card" data-settings-section="general">
           <h2>Panel</h2>
           <div class="field">
             <label for="panel_title">Panel Name</label>
@@ -68,7 +82,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" data-settings-section="security">
           <h2>Security</h2>
           <p class="muted small">
             These matter most when the panel is reachable from outside your own network.
@@ -109,7 +123,7 @@
           </ul>
         </div>
 
-        <div class="card">
+        <div class="card" data-settings-section="general">
           <h2>Appearance</h2>
 
           <div class="field-row">
@@ -152,7 +166,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" data-settings-section="proxy">
           <div class="card-head">
             <h2>NPMplus</h2>
             <span class="pill <%= settings.npmplus_enabled === '1' ? 'pill-running' : '' %>"><%= settings.npmplus_enabled === '1' ? 'enabled' : 'disabled' %></span>
@@ -204,14 +218,14 @@
           <div id="test-result" class="mt"></div>
         </div>
 
-        <div class="btn-row">
-          <button class="btn btn-primary" type="submit">Save Settings</button>
+        <div class="btn-row settings-save">
+          <button class="btn btn-primary" type="submit">
+            <%- icon('check') %><span>Save Settings</span>
+          </button>
         </div>
       </form>
-    </div>
 
-    <div>
-      <div class="card">
+      <div class="card" data-settings-section="system">
         <div class="card-head">
           <h2>Docker</h2>
           <span class="pill <%= docker.ok ? 'pill-running' : 'pill-error' %>"><%= docker.ok ? 'connected' : 'unavailable' %></span>
@@ -232,7 +246,7 @@
         <% } %>
       </div>
 
-      <div class="card">
+      <div class="card" data-settings-section="system">
         <h2>Paths and Ports</h2>
         <dl class="dl">
           <dt>Data directory</dt><dd><code class="inline"><%= dataDir %></code></dd>
@@ -243,7 +257,7 @@
         </dl>
       </div>
 
-      <div class="card">
+      <div class="card" data-settings-section="general">
         <div class="card-head">
           <h2>Saved Presets</h2>
           <span class="muted small"><%= templates.length %></span>
@@ -274,24 +288,53 @@
         <% } %>
       </div>
 
-      <div class="card">
+      <div class="card" data-settings-section="general">
         <h2>Setup Guide</h2>
         <p class="muted small">Walks through the host address, the reverse proxy connection and your first site.</p>
         <button class="btn" type="button" id="rerun-setup">Run the Setup Guide Again</button>
       </div>
 
-      <div class="card">
+      <div class="card" data-settings-section="proxy">
         <div class="card-head">
           <h2>NPMplus Proxy Hosts</h2>
           <button class="btn btn-sm" id="load-hosts">Load</button>
         </div>
         <div id="hosts-list" class="muted small">Click load to list the proxy hosts NPMplus currently knows about.</div>
       </div>
-    </div>
   </div>
 </div>
 
 <script>
+  /* --------------------------------------------------- section tabs --
+     Settings was one long column of unrelated cards. Grouping them means
+     four short pages instead of one page nobody reads to the end of. The
+     choice is remembered, because whoever is here for the proxy settings
+     is usually coming back to the proxy settings. */
+  (function () {
+    var buttons = document.querySelectorAll('[data-settings-tab]');
+    var sections = document.querySelectorAll('[data-settings-section]');
+
+    function show(name) {
+      sections.forEach(function (card) {
+        card.style.display = card.getAttribute('data-settings-section') === name ? '' : 'none';
+      });
+      buttons.forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-settings-tab') === name);
+      });
+      try { localStorage.setItem('hp-settings-tab', name); } catch (e) { /* ignore */ }
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () { show(b.getAttribute('data-settings-tab')); });
+    });
+
+    var saved = 'general';
+    try { saved = localStorage.getItem('hp-settings-tab') || 'general'; } catch (e) { /* ignore */ }
+    // A remembered tab that no longer exists would leave a blank page.
+    if (!document.querySelector('[data-settings-tab="' + saved + '"]')) saved = 'general';
+    show(saved);
+  })();
+
   // Keep the colour picker and the hex field in step.
   var picker = document.getElementById('accent_picker');
   var hex = document.getElementById('brand_accent');

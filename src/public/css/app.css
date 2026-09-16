@@ -945,3 +945,54 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .account-row-main { flex: 1; min-width: 220px; }
 .account-row-main strong { display: block; margin-bottom: .15rem; }
 .account-row-main .pill { margin-left: .35rem; }
+
+.code-block {
+  margin: .6rem 0;
+  padding: .7rem .85rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: .82rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}
+.alert p { margin: .5rem 0; }
+.alert p:first-of-type { margin-top: .35rem; }
+
+/* The bundled mark already carries its own rounded background, so it needs no
+   accent tile behind it - a custom logo still gets one. */
+.brand-mark-default { background: none; }
+.auth-logo-default { background: none; }
+
+/* ------------------------------------------------------ settings tabs -- */
+.settings-nav {
+  display: flex;
+  gap: .3rem;
+  flex-wrap: wrap;
+  padding-bottom: .6rem;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .85rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: .92rem;
+  cursor: pointer;
+}
+.settings-nav button:hover { color: var(--text); background: var(--panel); }
+.settings-nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.settings-body { max-width: 780px; }
+.settings-save { position: sticky; bottom: 1rem; }

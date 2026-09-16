@@ -1,10 +1,12 @@
 <% const u = (typeof user !== 'undefined') ? user : null; %>
 <header class="topbar">
   <a class="brand" href="/">
-    <span class="brand-mark">
+    <span class="brand-mark<%= (typeof brandLogo !== 'undefined' && brandLogo) ? '' : ' brand-mark-default' %>">
       <% if (typeof brandLogo !== 'undefined' && brandLogo) { %>
         <img src="<%= brandLogo %>" alt="">
-      <% } else { %>HP<% } %>
+      <% } else { %>
+        <img src="/static/logo.svg?v=<%= assetVersion %>" alt="">
+      <% } %>
     </span>
     <span class="brand-name"><%= panelTitle %></span>
   </a>
@@ -69,16 +71,6 @@
           </a>
           <a class="menu-item" href="/account/password" role="menuitem">
             <%- icon('key') %><span>Change Password</span>
-          </a>
-          <a class="menu-item" href="/account/2fa" role="menuitem">
-            <%- icon('shield') %>
-            <span>Two-Factor
-              <% if (typeof twoFactorOn !== 'undefined' && twoFactorOn) { %>
-                <span class="pill pill-running">On</span>
-              <% } else { %>
-                <span class="pill pill-error">Off</span>
-              <% } %>
-            </span>
           </a>
           <div class="menu-sep"></div>
           <form method="post" action="/logout">
