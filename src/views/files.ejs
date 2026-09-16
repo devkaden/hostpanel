@@ -695,7 +695,18 @@
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.setRequestHeader('Accept', 'application/json');
 
+      // A request that never settles would hold a worker forever and freeze
+      // the whole queue behind it. Better to fail this file and move on.
+      xhr.timeout = 120000;
+
       var last = 0;
+      var settled = false;
+      function done(fn, arg) {
+        if (settled) return;
+        settled = true;
+        fn(arg);
+      }
+
       xhr.upload.addEventListener('progress', function (e) {
         if (!e.lengthComputable) return;
         onProgress(e.loaded - last);
@@ -705,18 +716,37 @@
       xhr.addEventListener('load', function () {
         var res = {};
         try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
-        // Count whatever progress was not reported before completion.
-        onProgress((entry.file.size || 0) - last);
-        if (xhr.status >= 200 && xhr.status < 300) resolve(res);
-        else reject(new Error(res.error || (entry.path + ' failed (' + xhr.status + ')')));
+        // Account for anything not reported before completion.
+        onProgress(Math.max(0, (entry.file.size || 0) - last));
+        if (xhr.status >= 200 && xhr.status < 300) done(resolve, res);
+        else done(reject, new Error(res.error || (entry.path + ' failed (' + xhr.status + ')')));
       });
       xhr.addEventListener('error', function () {
-        reject(new Error('The connection dropped while uploading ' + entry.path));
+        done(reject, new Error('The connection dropped while uploading ' + entry.path));
       });
-      xhr.addEventListener('abort', function () { reject(new Error('Upload cancelled')); });
+      xhr.addEventListener('timeout', function () {
+        done(reject, new Error(entry.path + ' timed out - the upload stalled'));
+      });
+      xhr.addEventListener('abort', function () {
+        done(reject, new Error('Upload cancelled'));
+      });
 
-      xhr.send(entry.file);
+      try {
+        xhr.send(entry.file);
+      } catch (err) {
+        done(reject, new Error('Could not read ' + entry.path + ' from disk'));
+      }
     });
+  }
+
+  /** One retry, because a stall is usually transient. */
+  async function putWithRetry(entry, onProgress) {
+    try {
+      return await putFile(entry, onProgress);
+    } catch (err) {
+      if (/cancelled/i.test(err.message)) throw err;
+      return putFile(entry, function () { /* progress already counted */ });
+    }
   }
 
   async function uploadFiles(entries) {
@@ -757,38 +787,48 @@
     bar.classList.add('on');
     fill.style.width = '0%';
 
+    var inFlight = [];
+
     function tick(delta) {
       doneBytes += delta;
       var pct = totalBytes ? Math.min(100, Math.round((doneBytes / totalBytes) * 100)) : 100;
       fill.style.width = pct + '%';
+      var names = inFlight.filter(Boolean);
       label.textContent = 'Uploading ' + entries.length + ' file' +
-        (entries.length === 1 ? '' : 's') + ' - ' + pct + '% (' + doneCount + ' done)';
+        (entries.length === 1 ? '' : 's') + ' - ' + pct + '% (' + doneCount + ' done)' +
+        (names.length ? ' - ' + names[0] : '');
     }
     tick(0);
 
-    // A few at a time: fast on a LAN, without opening hundreds of sockets.
-    var CONCURRENCY = 3;
+    // Browsers allow about six connections per host. Staying well under that
+    // leaves room for the rest of the panel and avoids queueing behind uploads.
+    var CONCURRENCY = 2;
     var queue = entries.slice();
 
-    async function worker() {
+    async function worker(_unused, slot) {
       while (queue.length) {
         var entry = queue.shift();
+        inFlight[slot] = entry.path;
+        tick(0);
         try {
-          await putFile(entry, tick);
+          await putWithRetry(entry, tick);
           doneCount += 1;
         } catch (err) {
           failures.push({ name: entry.path, error: err.message });
           doneBytes += entry.file.size || 0;
         }
+        inFlight[slot] = null;
         tick(0);
       }
     }
 
-    await Promise.all(
-      Array.apply(null, { length: Math.min(CONCURRENCY, entries.length) }).map(worker)
-    );
-
-    bar.classList.remove('on');
+    try {
+      await Promise.all(
+        Array.apply(null, { length: Math.min(CONCURRENCY, entries.length) }).map(worker)
+      );
+    } finally {
+      bar.classList.remove('on');
+    }
 
     if (doneCount) {
       HP.toast('Uploaded ' + doneCount + ' file' + (doneCount === 1 ? '' : 's'), 'ok');

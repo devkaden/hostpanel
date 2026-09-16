@@ -229,6 +229,105 @@ const tpl = require(path.join(APP, 'site-templates.js'));
     check('and it is now tracked', fs.existsSync(path.join(dirs.conf, '.legacy.conf.hash')));
   }
 
+  /* ------------------------------------------------ upload streaming ---- */
+  console.log('\nraw upload streaming');
+  {
+    const http = require('http');
+    const { Transform } = require('stream');
+    const { pipeline } = require('stream/promises');
+
+    const LIMIT = 1024 * 1024; // 1 MB for the test
+    const uploadDir = path.join(TMP, 'uploads');
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Mirrors the handler in src/routes/files.js.
+    const server = http.createServer(async (req, res) => {
+      const name = decodeURIComponent((req.url.split('path=')[1] || 'f').split('&')[0]);
+      const tmp = path.join(uploadDir, 'tmp-' + Math.random().toString(16).slice(2));
+      let written = 0;
+      let tooBig = false;
+
+      const counter = new Transform({
+        transform(chunk, _enc, cb) {
+          written += chunk.length;
+          if (written > LIMIT) {
+            tooBig = true;
+            return cb(new Error('over the limit'));
+          }
+          return cb(null, chunk);
+        },
+      });
+
+      try {
+        await pipeline(req, counter, fs.createWriteStream(tmp));
+        fs.renameSync(tmp, path.join(uploadDir, name));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, bytes: written }));
+      } catch (err) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* already gone */ }
+        res.writeHead(tooBig ? 413 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+
+    function put(name, body) {
+      return new Promise((resolve, reject) => {
+        const req = http.request(
+          { method: 'PUT', host: '127.0.0.1', port, path: '/?path=' + encodeURIComponent(name),
+            headers: { 'Content-Type': 'application/octet-stream' } },
+          (res) => {
+            let text = '';
+            res.on('data', (d) => { text += d; });
+            res.on('end', () => {
+              let parsed = {};
+              try { parsed = JSON.parse(text); } catch (_) { parsed = {}; }
+              resolve({ status: res.statusCode, body: parsed });
+            });
+          }
+        );
+        req.on('error', reject);
+        req.end(body);
+      });
+    }
+
+    // A normal small file.
+    let r = await put('hello.txt', Buffer.from('hello world'));
+    check('accepts a small file', r.status === 200 && r.body.bytes === 11, JSON.stringify(r));
+    check('writes the right content',
+      fs.readFileSync(path.join(uploadDir, 'hello.txt'), 'utf8') === 'hello world');
+
+    // Zero bytes must not hang or error.
+    r = await put('empty.txt', Buffer.alloc(0));
+    check('accepts a zero-byte file', r.status === 200 && r.body.bytes === 0, JSON.stringify(r));
+    check('zero-byte file exists', fs.existsSync(path.join(uploadDir, 'empty.txt')));
+
+    // Large enough to exercise backpressure across many chunks.
+    const big = Buffer.alloc(900 * 1024, 0x61);
+    r = await put('big.bin', big);
+    check('accepts a large file under the limit',
+      r.status === 200 && r.body.bytes === big.length, JSON.stringify(r));
+    check('large file is byte-for-byte intact',
+      fs.statSync(path.join(uploadDir, 'big.bin')).size === big.length);
+
+    // Over the limit must be refused, and must not leave a partial file.
+    r = await put('toobig.bin', Buffer.alloc(LIMIT + 4096, 0x62));
+    check('refuses a file over the limit', r.status === 413, JSON.stringify(r));
+    check('no partial file is left behind', !fs.existsSync(path.join(uploadDir, 'toobig.bin')));
+    check('no temp files are left behind',
+      fs.readdirSync(uploadDir).filter((f) => f.startsWith('tmp-')).length === 0,
+      fs.readdirSync(uploadDir).join(', '));
+
+    // A nested path still lands in the right place.
+    fs.mkdirSync(path.join(uploadDir, 'sub'), { recursive: true });
+    r = await put('sub/nested.txt', Buffer.from('nested'));
+    check('accepts a nested path', r.status === 200, JSON.stringify(r));
+
+    await new Promise((resolve) => server.close(resolve));
+  }
+
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);

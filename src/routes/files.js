@@ -4,6 +4,8 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
+const { Transform } = require('stream');
+const { pipeline } = require('stream/promises');
 const express = require('express');
 
 const config = require('../config');
@@ -163,44 +165,68 @@ router.put(
     const destDir = String(req.query.dir || '');
     if (!relative) return res.status(400).json({ error: 'No file name was supplied' });
 
-    const declared = parseInt(req.get('content-length') || '0', 10);
     const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
+    const declared = parseInt(req.get('content-length') || '0', 10);
     if (declared && declared > config.maxUploadBytes) {
       return res.status(413).json({
         error: `"${relative}" is ${Math.round(declared / 1024 / 1024)} MB, over the ${mb} MB limit.`,
       });
     }
 
+    // A stalled socket must never hold the request open forever: the browser
+    // would wait on a response that never comes, the socket would stay tied
+    // up, and later uploads would queue behind it against the browser's
+    // per-host connection limit.
+    //
+    // The callback matters. setTimeout() without one only emits 'timeout' and
+    // leaves the socket open, which is exactly the hang being guarded against.
+    const IDLE_MS = 60000;
+    req.setTimeout(IDLE_MS, () => {
+      req.destroy(new Error(`Timed out receiving "${relative}"`));
+    });
+
     await fsp.mkdir(config.tmpDir, { recursive: true });
     const tmp = path.join(config.tmpDir, `up-${crypto.randomBytes(10).toString('hex')}`);
-    const out = fs.createWriteStream(tmp);
 
     let written = 0;
     let tooBig = false;
 
-    try {
-      await new Promise((resolve, reject) => {
-        req.on('data', (chunk) => {
-          written += chunk.length;
-          if (written > config.maxUploadBytes && !tooBig) {
-            tooBig = true;
-            req.destroy();
-            out.destroy();
-            reject(new Error(`"${relative}" is over the ${mb} MB limit.`));
-          }
-        });
-        req.on('aborted', () => reject(new Error('The upload was cancelled')));
-        req.on('error', reject);
-        out.on('error', reject);
-        out.on('finish', resolve);
-        req.pipe(out);
-      });
+    // Counting in a Transform rather than a 'data' listener. Attaching 'data'
+    // puts the request into flowing mode, which fights pipe()'s backpressure
+    // when the disk is slower than the socket.
+    const counter = new Transform({
+      transform(chunk, _enc, cb) {
+        written += chunk.length;
+        if (written > config.maxUploadBytes) {
+          tooBig = true;
+          return cb(new Error(`"${relative}" is over the ${mb} MB limit.`));
+        }
+        return cb(null, chunk);
+      },
+    });
 
+    const started = Date.now();
+    try {
+      await pipeline(req, counter, fs.createWriteStream(tmp));
       await fm.saveUploadNested(req.site, destDir, relative, tmp);
+
+      const ms = Date.now() - started;
+      if (ms > 5000 || written > 10 * 1024 * 1024) {
+        console.log(
+          `[upload] ${req.site.name}: ${relative} (${written} bytes) in ${Math.round(ms / 100) / 10}s`
+        );
+      }
       return res.json({ ok: true, path: relative, bytes: written });
     } catch (err) {
       await fsp.unlink(tmp).catch(() => {});
-      return res.status(tooBig ? 413 : 400).json({ error: err.message, path: relative });
+      const timedOut = err.code === 'ECONNRESET' || /timeout|aborted/i.test(err.message || '');
+      console.error(`[upload] ${req.site.name}: ${relative} failed - ${err.message}`);
+      return res.status(tooBig ? 413 : 400).json({
+        error: timedOut
+          ? `The connection stalled while uploading "${relative}".`
+          : err.message,
+        path: relative,
+      });
     }
   })
 );

@@ -174,12 +174,25 @@ live on the site page. Without a domain the site is still reachable at
 - Extract zips, download a file or a folder as a zip, rename, chmod, bulk
   delete.
 
-Uploads are sent as raw `PUT` requests, one file at a time, three in parallel.
+Uploads are sent as raw `PUT` requests, one file at a time, two in parallel.
 There is no multipart parsing anywhere in the panel: a multipart parser that
 hits any limit tears the request stream down mid-flight, and the browser only
 ever learns that the form "ended unexpectedly" — with no indication of which
 file or which limit. A raw body has no form to end, so a failure names the file
 and the reason.
+
+Both ends have a timeout, because a request that never settles is worse than
+one that fails: the socket stays tied up, and browsers allow only about six
+connections per host, so later uploads queue behind it and the whole thing
+looks frozen. The server drops a receive that stalls for 60 seconds; the
+browser gives a file 120 seconds, retries it once, then reports that file and
+moves on to the next.
+
+If an upload misbehaves, the server logs every slow or failed transfer:
+
+```bash
+journalctl -u hostpanel -f | grep upload
+```
 
 Every path is resolved against the site root. Traversal, symlink escapes and
 zip-slip are rejected, and each segment of an uploaded folder path is validated
