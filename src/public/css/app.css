@@ -660,3 +660,66 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   line-height: 1.55;
 }
 .CodeMirror-gutters { border-right: 1px solid var(--border); }
+
+/* ==================================================== dialogs ========== */
+.dlg-backdrop {
+  position: fixed; inset: 0; z-index: 300;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, #05070a 78%, transparent);
+  backdrop-filter: blur(3px);
+  padding: 1.25rem;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.dlg-backdrop.in { opacity: 1; }
+.dlg {
+  width: 100%; max-width: 440px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px var(--shadow);
+  transform: translateY(6px) scale(.99);
+  transition: transform .12s ease;
+  overflow: hidden;
+}
+.dlg-backdrop.in .dlg { transform: none; }
+.dlg-wide { max-width: 560px; }
+
+.dlg-body { padding: 1.35rem 1.4rem 1.1rem; display: flex; gap: 1rem; }
+.dlg-icon {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-size: 1.05rem;
+  background: var(--accent-soft); color: var(--accent);
+}
+.dlg-icon.danger { background: var(--red-soft); color: var(--red); }
+.dlg-icon.warn { background: var(--amber-soft); color: var(--amber); }
+.dlg-icon.ok { background: var(--green-soft); color: var(--green); }
+.dlg-content { min-width: 0; flex: 1; }
+.dlg-title { font-size: 1rem; font-weight: 650; margin: 0 0 .35rem; letter-spacing: -.005em; }
+.dlg-message {
+  margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.dlg-message strong { color: var(--text); font-weight: 600; }
+.dlg-field { margin-top: .9rem; }
+.dlg-field label { font-size: .82rem; }
+.dlg-list {
+  margin: .7rem 0 0; padding: .55rem .7rem;
+  background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  font-size: .84rem; color: var(--muted);
+  max-height: 160px; overflow-y: auto;
+}
+.dlg-list div { padding: .1rem 0; }
+.dlg-foot {
+  display: flex; justify-content: flex-end; gap: .5rem;
+  padding: .85rem 1.4rem 1.1rem;
+}
+.dlg-foot .btn { min-width: 84px; }
+@media (max-width: 480px) {
+  .dlg-body { flex-direction: column; gap: .7rem; }
+  .dlg-foot { flex-direction: column-reverse; }
+  .dlg-foot .btn { width: 100%; }
+}

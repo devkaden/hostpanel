@@ -103,7 +103,13 @@
   document.getElementById('clear-log').addEventListener('click', async function () {
     var source = sourceEl().value;
     if (!/\.log$/.test(source)) { HP.toast('Only file-backed logs can be cleared', 'error'); return; }
-    if (!confirm('Truncate ' + source + '?')) return;
+    var ok = await HP.confirm({
+      title: 'Clear this log?',
+      message: 'Everything currently in ' + source + ' is discarded. The site keeps writing new entries.',
+      confirmText: 'Clear log',
+      danger: true
+    });
+    if (!ok) return;
     try { await HP.api('/api/sites/' + SITE_ID + '/logs/clear', { body: { source: source } }); HP.toast('Cleared', 'ok'); loadLog(); }
     catch (err) { HP.toast(err.message, 'error'); }
   });

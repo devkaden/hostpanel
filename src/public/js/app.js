@@ -133,6 +133,163 @@
     return Math.round(diff / 86400) + 'd ago';
   }
 
+  /* --------------------------------------------------- dialogs -------- */
+  /**
+   * In-app replacements for window.confirm / alert / prompt. The built-in ones
+   * are styled by the browser, block the whole tab, and cannot show a list or
+   * a copy button. These return a promise and look like the rest of the panel.
+   */
+  function dialog(opts) {
+    return new Promise(function (resolve) {
+      var o = opts || {};
+      var backdrop = document.createElement('div');
+      backdrop.className = 'dlg-backdrop';
+
+      var box = document.createElement('div');
+      box.className = 'dlg' + (o.wide ? ' dlg-wide' : '');
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+
+      var icons = { danger: '!', warn: '!', ok: '\u2713', info: 'i', question: '?' };
+      var tone = o.tone || (o.danger ? 'danger' : 'question');
+
+      var body = document.createElement('div');
+      body.className = 'dlg-body';
+
+      var icon = document.createElement('div');
+      icon.className = 'dlg-icon ' + (tone === 'question' ? '' : tone);
+      icon.textContent = icons[tone] || '?';
+      body.appendChild(icon);
+
+      var content = document.createElement('div');
+      content.className = 'dlg-content';
+
+      var title = document.createElement('h3');
+      title.className = 'dlg-title';
+      title.textContent = o.title || 'Are you sure?';
+      content.appendChild(title);
+
+      if (o.message) {
+        var msg = document.createElement('p');
+        msg.className = 'dlg-message';
+        msg.textContent = o.message;
+        content.appendChild(msg);
+      }
+
+      if (o.list && o.list.length) {
+        var list = document.createElement('div');
+        list.className = 'dlg-list';
+        o.list.forEach(function (line) {
+          var row = document.createElement('div');
+          row.textContent = line;
+          list.appendChild(row);
+        });
+        content.appendChild(list);
+      }
+
+      var input = null;
+      if (o.input) {
+        var field = document.createElement('div');
+        field.className = 'dlg-field';
+        if (o.inputLabel) {
+          var lab = document.createElement('label');
+          lab.textContent = o.inputLabel;
+          field.appendChild(lab);
+        }
+        input = document.createElement('input');
+        input.type = 'text';
+        input.value = o.value || '';
+        if (o.placeholder) input.placeholder = o.placeholder;
+        if (o.readonly) { input.readOnly = true; input.style.fontFamily = 'var(--mono)'; }
+        field.appendChild(input);
+        content.appendChild(field);
+      }
+
+      body.appendChild(content);
+      box.appendChild(body);
+
+      var foot = document.createElement('div');
+      foot.className = 'dlg-foot';
+
+      var finish = function (value) {
+        backdrop.classList.remove('in');
+        setTimeout(function () {
+          backdrop.remove();
+          document.removeEventListener('keydown', onKey, true);
+          resolve(value);
+        }, 120);
+      };
+
+      if (o.cancelText !== null) {
+        var cancel = document.createElement('button');
+        cancel.className = 'btn';
+        cancel.textContent = o.cancelText || 'Cancel';
+        cancel.addEventListener('click', function () { finish(o.input ? null : false); });
+        foot.appendChild(cancel);
+      }
+
+      if (o.extraText) {
+        var extra = document.createElement('button');
+        extra.className = 'btn';
+        extra.textContent = o.extraText;
+        extra.addEventListener('click', function () { finish('extra'); });
+        foot.appendChild(extra);
+      }
+
+      var ok = document.createElement('button');
+      ok.className = 'btn ' + (o.danger ? 'btn-danger' : 'btn-primary');
+      ok.textContent = o.confirmText || 'OK';
+      ok.addEventListener('click', function () {
+        finish(o.input ? (input ? input.value : '') : true);
+      });
+      foot.appendChild(ok);
+
+      if (o.copyValue) {
+        var copyBtn = document.createElement('button');
+        copyBtn.className = 'btn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', function () { copy(o.copyValue, o.copyLabel || 'Value'); });
+        foot.insertBefore(copyBtn, foot.firstChild);
+      }
+
+      box.appendChild(foot);
+      backdrop.appendChild(box);
+
+      // Clicking the backdrop cancels, but only the backdrop itself.
+      backdrop.addEventListener('mousedown', function (e) {
+        if (e.target === backdrop) finish(o.input ? null : false);
+      });
+
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); finish(o.input ? null : false); }
+        if (e.key === 'Enter' && (!input || document.activeElement === input)) {
+          e.preventDefault();
+          ok.click();
+        }
+      }
+      document.addEventListener('keydown', onKey, true);
+
+      document.body.appendChild(backdrop);
+      requestAnimationFrame(function () { backdrop.classList.add('in'); });
+      setTimeout(function () { (input || ok).focus(); if (input && !o.readonly) input.select(); }, 60);
+    });
+  }
+
+  function confirmDialog(opts) {
+    var o = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return dialog(Object.assign({ confirmText: 'Confirm' }, o, { input: false }));
+  }
+
+  function alertDialog(opts) {
+    var o = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return dialog(Object.assign({ tone: 'info', confirmText: 'Close', cancelText: null }, o, { input: false }));
+  }
+
+  function promptDialog(opts) {
+    var o = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return dialog(Object.assign({ tone: 'question', confirmText: 'OK' }, o, { input: true }));
+  }
+
   /* ------------------------------------------------ interface mode ---- */
   // Preferences are stored against the signed-in account, so they follow the
   // person across refreshes, devices and logins. localStorage is only a
@@ -199,5 +356,6 @@
   window.HP = {
     api, toast, openModal, closeModal, bytes, copy, escapeHtml, relTime, CSRF,
     setMode, currentMode, setTheme, currentTheme,
+    dialog, confirm: confirmDialog, alert: alertDialog, prompt: promptDialog,
   };
 })();

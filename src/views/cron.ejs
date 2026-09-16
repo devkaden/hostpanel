@@ -175,7 +175,13 @@
   }
 
   async function deleteJob(id, name) {
-    if (!confirm('Delete cron job "' + name + '"?')) return;
+    var ok = await HP.confirm({
+      title: 'Delete this task?',
+      message: '"' + name + '" will stop running. This cannot be undone.',
+      confirmText: 'Delete task',
+      danger: true
+    });
+    if (!ok) return;
     try {
       await HP.api('/api/sites/' + SITE_ID + '/cron/' + id + '/delete');
       HP.toast('Deleted', 'ok');

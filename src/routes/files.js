@@ -3,8 +3,8 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
-const multer = require('multer');
 
 const config = require('../config');
 const { audit } = require('../db');
@@ -13,56 +13,6 @@ const sites = require('../sites');
 const { loadSite, wrap } = require('../middleware');
 
 const router = express.Router();
-
-// The browser uploads in batches, so one request never carries a huge number
-// of files. The ceiling here is generous enough that a batch never trips it.
-const MAX_FILES_PER_REQUEST = 200;
-
-const upload = multer({
-  dest: config.tmpDir,
-  limits: {
-    fileSize: config.maxUploadBytes,
-    files: MAX_FILES_PER_REQUEST,
-    // relpaths is one JSON string listing every file in the batch.
-    fieldSize: 2 * 1024 * 1024,
-    parts: MAX_FILES_PER_REQUEST + 20,
-  },
-});
-
-/**
- * Turns multer and busboy failures into something a person can act on.
- *
- * When a limit is hit, multer tears down the request stream while the browser
- * is still sending, and busboy then reports "Unexpected end of form" - which
- * says nothing about the actual cause. These messages name it.
- */
-function uploadFiles(req, res, next) {
-  upload.array('files', MAX_FILES_PER_REQUEST)(req, res, (err) => {
-    if (!err) return next();
-
-    const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
-    const messages = {
-      LIMIT_FILE_SIZE: `That file is larger than the ${mb} MB limit. Raise MAX_UPLOAD_MB in .env if you need more.`,
-      LIMIT_FILE_COUNT: `Too many files in one request (the limit is ${MAX_FILES_PER_REQUEST}). Upload in smaller batches.`,
-      LIMIT_PART_COUNT: 'Too many parts in one request. Upload in smaller batches.',
-      LIMIT_FIELD_VALUE: 'The upload metadata was too large. Upload in smaller batches.',
-      LIMIT_UNEXPECTED_FILE: 'The upload contained an unexpected field.',
-    };
-
-    if (err.code && messages[err.code]) {
-      return res.status(413).json({ error: messages[err.code], code: err.code });
-    }
-    if (/unexpected end of form/i.test(err.message || '')) {
-      return res.status(400).json({
-        error:
-          'The upload was cut off before it finished. This usually means the browser ' +
-          'stopped sending - try fewer files at once, or check the connection.',
-        code: 'UPLOAD_TRUNCATED',
-      });
-    }
-    return next(err);
-  });
-}
 
 /* ------------------------------------------------------------------ *
  * File manager page
@@ -196,40 +146,62 @@ router.post(
   })
 );
 
-router.post(
-  '/api/sites/:id/files/upload',
+/**
+ * Uploads one file as a raw request body.
+ *
+ * Deliberately not multipart. A multipart parser sat in this path, and any
+ * limit it hit tore down the stream mid-flight and surfaced as "Unexpected
+ * end of form" - an error that named neither the file nor the cause. A raw
+ * PUT has no form to end unexpectedly: the body is the file, the destination
+ * is in the query string, and a failure is about one known file.
+ */
+router.put(
+  '/api/sites/:id/files/raw',
   loadSite,
-  uploadFiles,
   wrap(async (req, res) => {
-    const dest = String(req.body.path || '');
-    // A dropped folder sends one relative path per file, in the same order.
-    let relPaths = req.body.relpaths;
-    if (typeof relPaths === 'string') {
-      try {
-        relPaths = JSON.parse(relPaths);
-      } catch (_) {
-        relPaths = null;
-      }
+    const relative = String(req.query.path || '');
+    const destDir = String(req.query.dir || '');
+    if (!relative) return res.status(400).json({ error: 'No file name was supplied' });
+
+    const declared = parseInt(req.get('content-length') || '0', 10);
+    const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
+    if (declared && declared > config.maxUploadBytes) {
+      return res.status(413).json({
+        error: `"${relative}" is ${Math.round(declared / 1024 / 1024)} MB, over the ${mb} MB limit.`,
+      });
     }
 
-    const saved = [];
-    const failed = [];
-    const files = req.files || [];
+    await fsp.mkdir(config.tmpDir, { recursive: true });
+    const tmp = path.join(config.tmpDir, `up-${crypto.randomBytes(10).toString('hex')}`);
+    const out = fs.createWriteStream(tmp);
 
-    for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      const relative = Array.isArray(relPaths) && relPaths[i] ? relPaths[i] : file.originalname;
-      try {
-        await fm.saveUploadNested(req.site, dest, relative, file.path);
-        saved.push(relative);
-      } catch (err) {
-        failed.push({ name: relative, error: err.message });
-        await fsp.unlink(file.path).catch(() => {});
-      }
+    let written = 0;
+    let tooBig = false;
+
+    try {
+      await new Promise((resolve, reject) => {
+        req.on('data', (chunk) => {
+          written += chunk.length;
+          if (written > config.maxUploadBytes && !tooBig) {
+            tooBig = true;
+            req.destroy();
+            out.destroy();
+            reject(new Error(`"${relative}" is over the ${mb} MB limit.`));
+          }
+        });
+        req.on('aborted', () => reject(new Error('The upload was cancelled')));
+        req.on('error', reject);
+        out.on('error', reject);
+        out.on('finish', resolve);
+        req.pipe(out);
+      });
+
+      await fm.saveUploadNested(req.site, destDir, relative, tmp);
+      return res.json({ ok: true, path: relative, bytes: written });
+    } catch (err) {
+      await fsp.unlink(tmp).catch(() => {});
+      return res.status(tooBig ? 413 : 400).json({ error: err.message, path: relative });
     }
-
-    audit(req, 'files.upload', req.site.name, saved.join(', ').slice(0, 500));
-    res.json({ ok: true, saved, failed });
   })
 );
 

@@ -443,12 +443,14 @@
         var existing = err.data && err.data.existingProxy;
         if (existing) {
           // Never repoint someone else's proxy host without asking.
-          var ok = confirm(
-            'NPMplus already has proxy host #' + existing.id + ' for ' +
-            existing.domains.join(', ') + '.\n\n' +
-            'It currently forwards to ' + existing.forward + '.\n\n' +
-            'Take it over and repoint it at this site? Whatever it serves now will stop working.'
-          );
+          var ok = await HP.confirm({
+            title: 'That domain is already proxied',
+            message: 'NPMplus proxy host #' + existing.id + ' currently forwards ' +
+              existing.domains.join(', ') + ' to ' + existing.forward + '.\n\n' +
+              'Taking it over repoints it at this site. Whatever it serves now will stop working.',
+            confirmText: 'Take it over',
+            danger: true
+          });
           if (ok) {
             try {
               var adoptBody = {};

@@ -190,6 +190,44 @@ console.log('\nmoving files inside a site');
   check('allows a sibling with a shared prefix', moveAllowed('app', 'application'));
 }
 
+console.log('\nupload transport');
+{
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'files.js'), 'utf8');
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'files.ejs'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+  // Multipart parsing is what produced "Unexpected end of form"; it must be gone.
+  check('no multipart parser is a dependency', !pkg.dependencies.multer);
+  check('routes do not require multer', !/require\(['"]multer['"]\)/.test(routes));
+  check('a raw PUT upload route exists', /files\/raw/.test(routes));
+  check('the route enforces the size limit', /maxUploadBytes/.test(routes));
+  check('the client uploads with PUT', /xhr\.open\('PUT'/.test(view));
+  check('the client sends the CSRF token on uploads', /X-CSRF-Token/.test(view));
+}
+
+console.log('\nin-app dialogs replace the browser ones');
+{
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');
+  check('HP.confirm exists', /confirm: confirmDialog/.test(app));
+  check('HP.alert exists', /alert: alertDialog/.test(app));
+  check('HP.prompt exists', /prompt: promptDialog/.test(app));
+
+  const views = path.join(__dirname, '..', 'src', 'views');
+  const offenders = [];
+  for (const file of fs.readdirSync(views)) {
+    if (!file.endsWith('.ejs')) continue;
+    const src = fs.readFileSync(path.join(views, file), 'utf8');
+    // A bare confirm(/alert(/prompt( not reached through HP.
+    const re = /(^|[^.\w])(confirm|alert|prompt)\s*\(/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const before = src.slice(Math.max(0, m.index - 4), m.index + 1);
+      if (!before.includes('HP.')) offenders.push(file + ': ' + m[2]);
+    }
+  }
+  check('no view calls a browser dialog directly', offenders.length === 0, offenders.join(', '));
+}
+
 /* --------------------------------------------- 5. security headers set --- */
 console.log('\nsecurity headers declared in src/index.js');
 {

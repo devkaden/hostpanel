@@ -265,7 +265,13 @@
   }
 
   async function deleteTemplate(id, name) {
-    if (!confirm('Delete the preset "' + name + '"? Sites created from it are not affected.')) return;
+    var ok = await HP.confirm({
+      title: 'Delete this preset?',
+      message: 'Sites already created from "' + name + '" are not affected.',
+      confirmText: 'Delete preset',
+      danger: true
+    });
+    if (!ok) return;
     try {
       await HP.api('/api/templates/' + id + '/delete');
       HP.toast('Preset deleted', 'ok');

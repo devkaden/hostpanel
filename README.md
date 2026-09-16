@@ -159,9 +159,9 @@ live on the site page. Without a domain the site is still reachable at
 **Files.** A proper file manager:
 
 - **Drag anywhere to upload** — drop files *or whole folders* onto the page and
-  the directory structure is recreated, with a progress bar. Large uploads are
-  sent in batches automatically, and dropping a project folder offers to skip
-  `node_modules`, `.git` and similar — they are rebuilt on the server anyway.
+  the directory structure is recreated, with a progress bar. Dropping a project
+  folder offers to skip `node_modules`, `.git` and similar, since those are
+  rebuilt on the server anyway.
 - **Drag to move** — drag rows onto a folder, or onto a breadcrumb to move up a
   level. Multi-select with checkboxes, shift-click for a range.
 - **Filter and sort** — filter the current folder, sort by name, size or date.
@@ -173,6 +173,13 @@ live on the site page. Without a domain the site is still reachable at
   works.
 - Extract zips, download a file or a folder as a zip, rename, chmod, bulk
   delete.
+
+Uploads are sent as raw `PUT` requests, one file at a time, three in parallel.
+There is no multipart parsing anywhere in the panel: a multipart parser that
+hits any limit tears the request stream down mid-flight, and the browser only
+ever learns that the form "ended unexpectedly" — with no indication of which
+file or which limit. A raw body has no form to end, so a failure names the file
+and the reason.
 
 Every path is resolved against the site root. Traversal, symlink escapes and
 zip-slip are rejected, and each segment of an uploaded folder path is validated
@@ -294,6 +301,13 @@ appearance of isolation without the substance. What this means in practice:
   or `127.0.0.1` so the ports are not bound on every interface.
 - Only give admin to people you would give root to. A standard user is confined
   to their own sites, but a shell inside a container is still a shell.
+
+### Dialogs
+
+The panel never uses `window.alert`, `confirm` or `prompt`. Every confirmation
+is an in-app dialog matching the rest of the interface, which also means a
+delete prompt can list exactly what it is about to remove, and a generated
+password can come with a Copy button.
 
 ### What is hardened
 
@@ -479,10 +493,6 @@ on the site page, then read the container log. For Node, confirm the app binds
 **WordPress redirect loop** — usually a stale `WP_HOME`/`WP_SITEURL`. The panel
 sets both from the domain at container creation, so set the domain first and
 then rebuild.
-
-**"Unexpected end of form" when uploading** — that was a multer limit being hit
-mid-stream. Uploads are now batched by the browser and limit errors say what
-actually happened. If you still see it, the connection dropped part-way through.
 
 **Terminal won't connect** — if the panel is behind a proxy, that proxy must
 allow websocket upgrades. In NPMplus that is the "Websockets Support" toggle.

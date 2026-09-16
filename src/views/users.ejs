@@ -153,23 +153,63 @@
   });
 
   async function resetPw(id, username) {
-    if (!confirm('Generate a new password for ' + username + '? Their current one stops working immediately.')) return;
+    var ok = await HP.confirm({
+      title: 'Reset this password?',
+      message: 'A new password is generated for ' + username + '. Their current one stops ' +
+        'working immediately and any signed-in session ends.',
+      confirmText: 'Reset password',
+      tone: 'warn'
+    });
+    if (!ok) return;
     try {
       var res = await HP.api('/users/' + id + '/password', { body: {} });
-      prompt('New password for ' + username + ' (copy it now):', res.password);
+      await HP.dialog({
+        title: 'New password for ' + username,
+        message: 'This is shown once. Copy it now - they must change it at first login.',
+        tone: 'ok',
+        input: true,
+        readonly: true,
+        value: res.password,
+        copyValue: res.password,
+        copyLabel: 'Password',
+        confirmText: 'Done',
+        cancelText: null
+      });
     } catch (err) { HP.toast(err.message, 'error'); }
   }
 
   async function delUser(id, username, siteCount) {
     var reassign = null;
     if (siteCount > 0) {
-      var options = USERS.filter(function (u) { return u.id !== id; })
-        .map(function (u) { return u.id + ' = ' + u.username; }).join('\n');
-      var answer = prompt(username + ' owns ' + siteCount + ' site(s).\nEnter the user ID to reassign them to:\n\n' + options);
+      var others = USERS.filter(function (u) { return u.id !== id; });
+      if (!others.length) {
+        await HP.alert({
+          title: 'Cannot delete this user',
+          message: username + ' owns ' + siteCount + ' site(s) and there is nobody to ' +
+            'hand them to. Create another user first.',
+          tone: 'warn'
+        });
+        return;
+      }
+      var answer = await HP.prompt({
+        title: 'Who should take over the sites?',
+        message: username + ' owns ' + siteCount + ' site(s). Enter the ID of the user who ' +
+          'should own them instead.',
+        list: others.map(function (u) { return u.id + ' = ' + u.username; }),
+        inputLabel: 'User ID',
+        confirmText: 'Reassign and delete',
+        tone: 'warn'
+      });
       if (!answer) return;
-      reassign = answer.trim();
-    } else if (!confirm('Delete ' + username + '?')) {
-      return;
+      reassign = String(answer).trim();
+    } else {
+      var ok = await HP.confirm({
+        title: 'Delete ' + username + '?',
+        message: 'Their account is removed. This cannot be undone.',
+        confirmText: 'Delete user',
+        danger: true
+      });
+      if (!ok) return;
     }
     try {
       await HP.api('/users/' + id + '/delete', { body: { reassign_to: reassign } });
