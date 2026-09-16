@@ -39,39 +39,52 @@ if (start < 0 || end < 0 || end <= start) {
 }
 const source = view.slice(start, end);
 
-for (const fn of ['entryToFile', 'materialise', 'bodyFor']) {
+for (const fn of ['entryToFile', 'materialise', 'bodyFor', 'readBytes']) {
   if (!new RegExp('function ' + fn + '\\b').test(source)) {
     console.error(`The extracted block is missing ${fn}(). Adjust the markers.`);
     process.exit(1);
   }
 }
 
-const sandbox = { Blob, Error, Promise, setTimeout, clearTimeout, console };
+// No FileReader here, which is deliberate: readBytes() has to work through its
+// arrayBuffer() fallback too, and that is the path this exercises. ulog is the
+// page's console helper, stubbed so the extracted code runs unmodified.
+const sandbox = {
+  Blob, Error, Promise, setTimeout, clearTimeout, console,
+  ulog: () => {},
+};
 vm.createContext(sandbox);
 vm.runInContext(
-  source + '\n;this.__api = { entryToFile, materialise, bodyFor, ' +
-    'MATERIALISE_MAX_FILE, MATERIALISE_BUDGET };',
+  source + '\n;this.__api = { entryToFile, materialise, bodyFor, readBytes, ' +
+    'MATERIALISE_MAX_FILE, MATERIALISE_BUDGET, READ_INTO_MEMORY_MAX };',
   sandbox
 );
-const { entryToFile, materialise, bodyFor, MATERIALISE_MAX_FILE } = sandbox.__api;
+const {
+  entryToFile, materialise, bodyFor, readBytes,
+  MATERIALISE_MAX_FILE, READ_INTO_MEMORY_MAX,
+} = sandbox.__api;
 
 /* ------------------------------------------------- fake entries API ------ */
 // mode: 'ok' | 'error' | 'hang', and it can change part-way through a run,
 // which is exactly what Chrome does when it releases the dropped folder.
+function fakeFile(name, bytes) {
+  return {
+    name,
+    size: bytes.length,
+    type: '',
+    arrayBuffer: async () => bytes.buffer.slice(
+      bytes.byteOffset, bytes.byteOffset + bytes.byteLength
+    ),
+  };
+}
+
 function fakeEntry(name, bytes, state) {
   return {
     name,
     file(onOk, onErr) {
       if (state.mode === 'hang') return;               // never calls back
       if (state.mode === 'error') return onErr(new Error('NotFoundError'));
-      return onOk({
-        name,
-        size: bytes.length,
-        type: '',
-        arrayBuffer: async () => bytes.buffer.slice(
-          bytes.byteOffset, bytes.byteOffset + bytes.byteLength
-        ),
-      });
+      return onOk(fakeFile(name, bytes));
     },
   };
 }
@@ -124,13 +137,13 @@ const bodyBytes = async (body) => {
 
     // The whole point: access goes away, and the upload still works.
     state.mode = 'hang';
-    const body = await bodyFor(items[0], false);
+    const body = await bodyFor(items[0]);
     check('a materialised file uploads after access is released', !!body);
     check('and the bytes are the right ones',
       (await bodyBytes(body)).toString() === '<h1>hi</h1>');
 
     const began = Date.now();
-    await bodyFor(items[1], true);
+    await bodyFor(items[1]);
     check('even a retry does not wait on the dead handle', Date.now() - began < 200);
   }
 
@@ -143,21 +156,60 @@ const bodyBytes = async (body) => {
     check('no bytes are claimed', !item.blob && !item.file);
 
     let err = null;
-    try { await bodyFor(item, false); } catch (e) { err = e; }
+    try { await bodyFor(item); } catch (e) { err = e; }
     check('bodyFor explains it rather than throwing something cryptic',
       !!err && /Could not read/.test(err.message) && /iCloud/.test(err.message),
       err && err.message);
   }
 
-  console.log('\npicked files (no entry) still work');
+  console.log('\npicked files (no entry)');
   {
-    const item = { path: 'notes.txt', file: { name: 'notes.txt', size: 5 } };
-    const body = await bodyFor(item, false);
-    check('a File from the file picker is used as-is', body === item.file);
+    const bytes = Buffer.from('hello');
+    const item = { path: 'notes.txt', file: fakeFile('notes.txt', bytes) };
 
-    // materialise must not touch it or report it as unread.
-    await materialise([item], noop);
-    check('materialise leaves picked files alone', !item.readError && !item.blob);
+    // The Safari bug: a disk-backed File handed to the request never sends.
+    // bodyFor must turn it into bytes rather than passing the handle along.
+    const body = await bodyFor(item);
+    check('a picked file is read into memory, not passed as a handle',
+      body !== item.file);
+    check('and the bytes survive the trip', (await bodyBytes(body)).toString() === 'hello');
+
+    // Reading happens per file at send time, so a big selection is never all
+    // in memory at once - materialise is only for dropped entries.
+    const fresh = { path: 'notes.txt', file: fakeFile('notes.txt', bytes) };
+    await materialise([fresh], noop);
+    check('materialise leaves picked files for later', !fresh.readError && !fresh.blob);
+  }
+
+  console.log('\nfiles too large to hold in memory');
+  {
+    const huge = fakeFile('video.mov', Buffer.alloc(8));
+    huge.size = READ_INTO_MEMORY_MAX + 1; // lie about the size; nothing reads it
+    const item = { path: 'video.mov', file: huge };
+    const body = await bodyFor(item);
+    check('a very large file is passed through rather than buffered',
+      body === huge);
+  }
+
+  console.log('\nreadBytes gives up rather than hanging');
+  {
+    const stuck = {
+      name: 'evicted.psd',
+      size: 10,
+      type: '',
+      arrayBuffer: () => new Promise(() => {}), // never settles
+    };
+    const began = Date.now();
+    let err = null;
+    try { await readBytes(stuck, 300); } catch (e) { err = e; }
+    check('a read that never returns times out', !!err && /timed out/.test(err.message),
+      err && err.message);
+    check('and it gives up on schedule', Date.now() - began < 2000);
+
+    // bodyFor must not fail the upload over it: the handle is still worth a try.
+    const item = { path: 'evicted.psd', file: stuck };
+    const body = await bodyFor(item);
+    check('an unreadable file still falls back to its handle', body === stuck);
   }
 
   console.log('\nmemory bounds');

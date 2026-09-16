@@ -671,6 +671,74 @@
     });
   }
 
+  /**
+   * Reads a File's bytes into memory, and gives up rather than waiting forever.
+   *
+   * This is the step that makes uploads work at all in Safari. Handing a
+   * disk-backed File straight to XMLHttpRequest asks the browser to stream it
+   * while the request is open, and Safari can simply never start: the request
+   * goes out, no progress event ever fires, no error is raised, and the upload
+   * sits there. The same bytes as an in-memory Blob upload instantly. So the
+   * reading is done here, where a stall is a normal failure that can be
+   * reported, instead of inside a request that has no way to say what is wrong.
+   *
+   * FileReader rather than file.arrayBuffer() because it can be aborted. A
+   * promise from arrayBuffer() that never settles is a leak with no handle on
+   * it; a FileReader can be told to stop and release the file.
+   */
+  function readBytes(file, ms) {
+    return new Promise(function (resolve, reject) {
+      if (typeof FileReader === 'undefined') {
+        // No FileReader: fall back to the modern API, still bounded.
+        var timer0 = setTimeout(function () {
+          reject(new Error('timed out reading "' + file.name + '"'));
+        }, ms || 30000);
+        file.arrayBuffer().then(
+          function (buf) { clearTimeout(timer0); resolve(new Blob([buf], { type: file.type || '' })); },
+          function (err) { clearTimeout(timer0); reject(err); }
+        );
+        return;
+      }
+
+      var reader = new FileReader();
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        try { reader.abort(); } catch (_) { /* already finished */ }
+        reject(new Error(
+          'the browser never finished reading "' + file.name + '". If it is ' +
+          'stored in iCloud, OneDrive or Dropbox, download it locally first.'
+        ));
+      }, ms || 30000);
+
+      reader.onload = function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        resolve(new Blob([reader.result], { type: file.type || '' }));
+      };
+      reader.onerror = function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        reject(new Error(
+          'could not read "' + file.name + '"' +
+          (reader.error && reader.error.name ? ' (' + reader.error.name + ')' : '')
+        ));
+      };
+      reader.onabort = function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        reject(new Error('reading "' + file.name + '" was cancelled'));
+      };
+
+      try {
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        if (!settled) { settled = true; clearTimeout(timer); reject(err); }
+      }
+    });
+  }
+
   // Materialising a file means reading its bytes into memory up front, so the
   // upload no longer depends on the browser still having access to the
   // original. Bounded so a huge folder cannot exhaust the tab.
@@ -692,26 +760,26 @@
     for (var i = 0; i < items.length; i += 1) {
       var item = items[i];
       onProgress(i, items.length, item.path);
-      if (!item.entry || item.file || item.blob) continue;
+      if (!item.entry || item.blob) continue;
 
-      // Once several files in a row cannot be opened, the folder itself is
-      // unreadable - Safari in particular gives up on a dropped directory as a
-      // whole. Waiting out a ten second timeout on each of two hundred files
-      // would take half an hour to reach a conclusion already obvious after
-      // three, so the rest are failed immediately with the same reason.
+      // Once several files in a row cannot be read, the source itself is gone:
+      // a dropped folder whose access has lapsed, or a sync folder that is not
+      // answering. Waiting out a ten second timeout on each of two hundred
+      // files would take half an hour to reach a conclusion already obvious
+      // after three, so the rest are failed immediately with the same reason.
       if (consecutiveFailures >= 3) {
-        item.readError = 'the browser stopped allowing reads from this folder';
+        item.readError = 'the browser stopped answering reads from this folder';
         continue;
       }
 
       try {
         var file = await entryToFile(item.entry, 10000);
-        consecutiveFailures = 0;
-        item.file = file; // keep as a fallback even if not materialised
+        item.file = file; // a fallback even if the bytes are not held
         if (file.size <= MATERIALISE_MAX_FILE && used + file.size <= MATERIALISE_BUDGET) {
-          item.blob = new Blob([await file.arrayBuffer()], { type: file.type || '' });
+          item.blob = await readBytes(file, 30000);
           used += file.size;
         }
+        consecutiveFailures = 0;
       } catch (err) {
         consecutiveFailures += 1;
         item.readError = err.message;
@@ -719,22 +787,33 @@
     }
   }
 
+  // Above this, a file is handed to the browser as-is rather than held in
+  // memory. Reading a 500 MB file into a tab to upload it is worse than the
+  // problem it solves.
+  var READ_INTO_MEMORY_MAX = 64 * 1024 * 1024;
+
   /**
-   * The best available body for this item, preferring bytes already held.
+   * The body to send for this item, as in-memory bytes wherever that is sane.
    *
-   * Bytes in memory never go stale, so a materialised file is used on the retry
-   * too - asking for a fresh handle there would only risk the read failing
-   * again, slowly.
+   * Sending the browser's own File object is the obvious thing to do and it is
+   * what does not work: Safari accepts the request, reaches readyState 1, and
+   * then never sends a byte - no progress, no error, nothing to catch. The
+   * identical bytes as an in-memory Blob upload in milliseconds. So the file is
+   * read here, where a failure is an ordinary rejected promise that can say
+   * which file and why, rather than inside a request with no way to report it.
+   *
+   * Dropped files were already read during traversal, because their access
+   * expires. Picked files are read here instead, one at a time, so a large
+   * selection does not sit in memory all at once.
    */
-  async function bodyFor(item, fresh) {
+  async function bodyFor(item) {
     if (item.blob) return item.blob;
-    if (item.entry) {
+
+    var file = item.file;
+    if (!file && item.entry) {
       try {
-        var file = await entryToFile(item.entry, 10000);
-        return file;
+        file = await entryToFile(item.entry, 10000);
       } catch (err) {
-        if (item.blob) return item.blob;
-        if (item.file && !fresh) return item.file;
         throw new Error(
           'Could not read "' + item.path + '" from disk. Use the Upload folder ' +
           'button instead of dragging - and if the file lives in iCloud, OneDrive ' +
@@ -742,8 +821,16 @@
         );
       }
     }
-    if (item.file) return item.file;
-    throw new Error('No readable data for ' + item.path);
+    if (!file) throw new Error('No readable data for ' + item.path);
+
+    if (file.size > READ_INTO_MEMORY_MAX) return file;
+
+    try {
+      return await readBytes(file, 30000);
+    } catch (err) {
+      ulog('read failed, sending the handle instead', item.path, err.message);
+      return file; // the browser may still manage it; the watchdog covers us
+    }
   }
 
   // Junk that is rebuilt on the server or belongs to version control. Sending
@@ -804,30 +891,39 @@
       xhr.timeout = 120000;
 
       var settled = false;
-      var sawProgress = false;
+      var lastLoaded = -1;
+      var lastMovedAt = Date.now();
       function done(fn, arg) {
         if (settled) return;
         settled = true;
-        clearTimeout(stallTimer);
+        clearInterval(stallTimer);
         fn(arg);
       }
 
       // A request that is neither answered nor failed is the worst outcome:
-      // the queue sits at 0% and nothing says why. If nothing at all has moved
-      // after this long, give up on it so the caller can try another way.
-      var stallTimer = setTimeout(function () {
-        if (settled || sawProgress) return;
-        ulog('no progress after 20s, abandoning', item.path, 'readyState', xhr.readyState);
+      // the queue sits at 0% and nothing says why.
+      //
+      // This watches the byte counter, not the events. Safari fires a progress
+      // event with loaded = 0 and then stalls, so treating "an event arrived"
+      // as progress disarms the very guard that is needed. Only the number
+      // going up counts as movement.
+      var STALL_MS = 20000;
+      var stallTimer = setInterval(function () {
+        if (settled) return;
+        if (Date.now() - lastMovedAt < STALL_MS) return;
+        ulog('stalled at', lastLoaded < 0 ? 0 : lastLoaded, 'bytes, abandoning', item.path);
         try { xhr.abort(); } catch (_) { /* already gone */ }
-        done(reject, new Error('the browser sent nothing for 20s'));
-      }, 20000);
+        done(reject, new Error(
+          'the browser stopped after ' + (lastLoaded < 0 ? 0 : lastLoaded) + ' bytes'
+        ));
+      }, 2000);
 
       xhr.upload.addEventListener('progress', function (e) {
-        sawProgress = true;
+        if (e.loaded > lastLoaded) { lastLoaded = e.loaded; lastMovedAt = Date.now(); }
         if (e.lengthComputable && e.total) onFraction(e.loaded / e.total);
       });
       xhr.addEventListener('readystatechange', function () {
-        if (xhr.readyState >= 2) sawProgress = true; // headers came back
+        if (xhr.readyState >= 2) lastMovedAt = Date.now(); // a reply is coming
       });
 
       xhr.addEventListener('load', function () {
@@ -904,23 +1000,22 @@
    * explains it.
    */
   async function uploadOne(item, onFraction) {
-    var body;
-    try {
-      body = await bodyFor(item, false);
-    } catch (err) {
-      throw err; // unreadable: the message already explains what to do
-    }
+    var body = await bodyFor(item);
 
     try {
-      return await putFile(item, body, onFraction);
+      var res = await putFile(item, body, onFraction);
+      item.blob = null; // sent: let the bytes go
+      return res;
     } catch (err) {
       ulog('xhr failed', item.path, err.message);
       onFraction(0);
       try {
         var out = await fetchFile(item, body);
         onFraction(1);
+        item.blob = null;
         return out;
       } catch (err2) {
+        item.blob = null;
         // Report the first failure: it is the one with the useful detail.
         throw new Error(err.message + ' (and again via fetch: ' + err2.message + ')');
       }
@@ -936,7 +1031,7 @@
    * started). Reading during that window removes the dependency on it.
    */
   async function readPhase(entries, label) {
-    var needsRead = entries.some(function (e) { return e.entry && !e.blob && !e.file; });
+    var needsRead = entries.some(function (e) { return e.entry && !e.blob; });
     if (!needsRead) return;
 
     await materialise(entries, function (i, n, name) {

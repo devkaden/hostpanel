@@ -204,14 +204,27 @@ arranged. The **Upload folder** button goes through the file picker instead,
 which works consistently in every browser, and is also the answer for files
 stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
 
-Each file is sent with `XMLHttpRequest` first, because that is the only way to
-report progress. If that fails for any reason other than the file being
-unreadable, the same bytes go again through `fetch()` — a separate
-implementation inside the browser that fails differently, which matters given
-Safari's history of XHR upload bugs. And if a request neither succeeds nor
-fails within 20 seconds, it is abandoned rather than left to hold the queue: a
-progress bar stuck at 0% with nothing in the log is the one outcome worth
-engineering away.
+**Files are read into memory before the request, never handed over as file
+handles.** This is the single thing that makes uploads work in Safari. Passing
+the browser's own `File` object to the request is the obvious approach and it
+is what fails: Safari reaches `readyState 1` and then never sends a byte — no
+progress event, no error, nothing to catch — and the `fetch` retry answers "the
+network connection was lost". The identical bytes as an in-memory `Blob` upload
+in milliseconds. Reading them first turns an unreportable hang into an ordinary
+rejected promise that can name the file and the reason.
+
+Dropped files are read during traversal, because their access expires. Picked
+files are read one at a time as each is sent, so a large selection is never all
+in memory at once, and the bytes are released as soon as the file is away.
+Anything over 64 MB is passed through as a handle rather than buffered — reading
+a 500 MB file into a tab is worse than the problem it solves.
+
+Each file goes out with `XMLHttpRequest` first, because that is the only way to
+report progress, and falls back to `fetch()` on failure. If a request neither
+succeeds nor fails within 20 seconds it is abandoned rather than left holding
+the queue. That guard watches the byte counter rather than the events, because
+Safari fires a progress event with `loaded = 0` and then stalls — treating "an
+event arrived" as progress disarms the very guard that is needed.
 
 Both ends have a timeout, because a request that never settles is worse than
 one that fails: the socket stays tied up, and browsers allow only about six

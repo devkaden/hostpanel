@@ -259,12 +259,27 @@ console.log('\ndropped-folder file handles');
     /function materialise/.test(view) && /await readPhase\(/.test(view));
   check('the read is bounded so a big folder cannot exhaust the tab',
     /MATERIALISE_MAX_FILE/.test(view) && /MATERIALISE_BUDGET/.test(view));
-  check('the upload prefers bytes already held',
-    /await bodyFor\(item, false\)/.test(view));
+  check('the upload asks for a body rather than passing a file handle',
+    /await bodyFor\(item\)/.test(view));
   check('a failed upload is retried through a different browser API',
     /function fetchFile/.test(view) && /retrying with fetch/.test(view));
   check('an upload that sends nothing is abandoned rather than left hanging',
-    /no progress after 20s/.test(view));
+    /stalled at/.test(view) && /lastMovedAt/.test(view));
+  // Safari fires a progress event with loaded = 0 and then stalls, so an event
+  // arriving must not count as movement - only the byte counter going up.
+  check('the stall guard tracks bytes, not events',
+    /e\.loaded > lastLoaded/.test(view));
+  // A disk-backed File handed to XHR is what Safari never starts sending.
+  check('file bytes are read into memory before the request',
+    /function readBytes/.test(view) && /readAsArrayBuffer/.test(view));
+  check('the read can be abandoned',
+    /reader\.abort\(\)/.test(view));
+  check('a picked file is read into memory before it is sent',
+    /return await readBytes\(file, 30000\);/.test(view));
+  check('but not one too large to hold',
+    /READ_INTO_MEMORY_MAX/.test(view));
+  check('the bytes are released once the file is sent',
+    /item\.blob = null/.test(view));
   check('an unreadable file fails with an explanation, not a timeout',
     /Could not read "/.test(view) && /iCloud/.test(view));
   check('the deleted late resolver is really gone',
