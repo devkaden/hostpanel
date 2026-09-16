@@ -107,7 +107,11 @@ function request(method, urlPath, body, extraHeaders) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () =>
-        resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') })
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString('utf8'),
+        })
       );
     });
     req.setTimeout(90000, () => req.destroy(new Error('the request timed out after 90s')));
@@ -221,6 +225,38 @@ const CASES = [
     });
     check('an oversized upload is refused from its headers alone', res.status === 413,
       `HTTP ${res.status}: ${String(res.body).slice(0, 200)}`);
+  }
+
+  /* ------------------------------------------------------- downloads ---- */
+  // Downloads go out through the same authenticated route, and a failure there
+  // arrives in the browser as a tiny file with a useless name - Safari calls it
+  // "download.json" and says "Cannot create file", because what it received was
+  // a JSON error body, not the file. This says outright which it is.
+  {
+    const name = '__selftest-download.txt';
+    const contents = 'hostpanel download self-test\n';
+    await putRaw(name, Buffer.from(contents), '');
+
+    const res = await request(
+      'GET',
+      `/api/sites/${site.id}/files/download?path=${encodeURIComponent(name)}`,
+      null,
+      { Accept: '*/*' }
+    ).catch((err) => ({ status: 0, body: err.message, headers: {} }));
+
+    check('a download returns the file, not an error', res.status === 200,
+      `HTTP ${res.status}: ${String(res.body).slice(0, 200)}`);
+    check('and the bytes are the file itself', res.body === contents,
+      `got ${res.body.length} bytes: ${JSON.stringify(String(res.body).slice(0, 120))}`);
+    check('it is sent as an attachment with the right name',
+      /attachment/.test(res.headers['content-disposition'] || '') &&
+        (res.headers['content-disposition'] || '').includes(name),
+      `content-disposition: ${res.headers['content-disposition'] || '(missing)'}`);
+    check('and is not marked no-store, which Safari cannot save',
+      !/no-store/.test(res.headers['cache-control'] || ''),
+      `cache-control: ${res.headers['cache-control'] || '(none)'}`);
+
+    CASES.push({ name, size: contents.length });
   }
 
   // Tidy up after ourselves.

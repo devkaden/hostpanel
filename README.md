@@ -204,6 +204,20 @@ arranged. The **Upload folder** button goes through the file picker instead,
 which works consistently in every browser, and is also the answer for files
 stored in iCloud, OneDrive or Dropbox that have not been downloaded locally.
 
+### If something breaks in one browser only
+
+Try `DISABLE_CSP=true` in `/opt/hostpanel/data/.env`, restart, and test again.
+If the problem disappears, the Content-Security-Policy is the cause. This is
+worth knowing because a CSP refusal does not announce itself as one: Safari
+reports it as `NotReadableError` or `WebKitBlobResource error 4`, which reads
+exactly like the operating system denying the browser access to your files.
+
+That is not hypothetical. The policy originally shipped without `blob:`, and
+because Safari applies CSP to the internal blob load that backs a file upload —
+where Chrome does not — uploads failed in Safari alone, with an error that
+pointed squarely at macOS permissions. Turn the header back off once you have
+your answer.
+
 ### When the browser will not read your files at all
 
 A `NotReadableError` on every file means the browser is being refused access to
@@ -571,6 +585,7 @@ npm test
 | `PUBLISH_ADDRESS` | `0.0.0.0` | Interface site containers publish on |
 | `HOST_IP` | auto-detected | Address NPMplus forwards to |
 | `MAX_UPLOAD_MB` | `512` | Largest single upload |
+| `DISABLE_CSP` | `false` | Turns the Content-Security-Policy off. Debugging only — see below |
 
 ---
 

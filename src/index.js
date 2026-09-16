@@ -106,19 +106,34 @@ app.use((req, res, next) => {
     'Referrer-Policy': 'no-referrer',
     'X-DNS-Prefetch-Control': 'off',
     'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
-    'Content-Security-Policy': [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data:",
-      "font-src 'self' data:",
-      "connect-src 'self' ws: wss:",
-      `frame-src ${frameSrc}`,
-      "form-action 'self'",
-      "frame-ancestors 'none'",
-      "base-uri 'none'",
-      "object-src 'none'",
-    ].join('; '),
+    ...(config.disableCsp ? {} : {
+      'Content-Security-Policy': [
+        // blob: is required, and its absence is not a theoretical problem.
+        //
+        // When a file is uploaded, WebKit turns the File into a blob resource
+        // and loads it to get the bytes - and unlike Chrome, Safari applies CSP
+        // to that internal load. With no blob: in the policy the read is
+        // refused: the request reaches readyState 1 and sends nothing, and
+        // FileReader reports NotReadableError, both accompanied by
+        // "WebKitBlobResource error 4" in the console. It reads exactly like
+        // macOS denying the browser access to the file, which is what it was
+        // mistaken for. A page may always read the blobs it made itself, so
+        // this gives up nothing.
+        "default-src 'self' blob:",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "media-src 'self' blob:",
+        "connect-src 'self' blob: ws: wss:",
+        "worker-src 'self' blob:",
+        `frame-src ${frameSrc}`,
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "object-src 'none'",
+      ].join('; '),
+    }),
   });
   if (config.secureCookies) {
     res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

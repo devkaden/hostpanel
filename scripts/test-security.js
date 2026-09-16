@@ -392,6 +392,21 @@ console.log('\nsecurity headers declared in src/index.js');
   ]) {
     check(`sets ${header}`, src.includes(header));
   }
+  // Safari applies CSP to the internal blob load that backs a file upload, so a
+  // policy without blob: refuses to read the file at all - reported as
+  // NotReadableError and "WebKitBlobResource error 4", neither of which
+  // mentions CSP. This cost a very long debugging session.
+  for (const directive of [
+    "default-src 'self' blob:",
+    "connect-src 'self' blob: ws: wss:",
+    "img-src 'self' data: blob:",
+  ]) {
+    check(`CSP allows blob resources: ${directive}`, src.includes(directive));
+  }
+  check('the CSP can be turned off to test whether it is the cause',
+    /disableCsp/.test(src) && /DISABLE_CSP/.test(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'config.js'), 'utf8')
+    ));
   check('trust proxy is opt-in', /TRUST_PROXY === 'true'/.test(
     fs.readFileSync(path.join(__dirname, '..', 'src', 'config.js'), 'utf8')
   ));

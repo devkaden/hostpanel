@@ -22,6 +22,12 @@ const config = {
   trustProxy: process.env.TRUST_PROXY === 'true',
   // Set true only when the panel itself is served over HTTPS (e.g. behind NPMplus)
   secureCookies: process.env.SECURE_COOKIES === 'true',
+  // An escape hatch, not a setting to leave on. If something in the panel
+  // breaks only in one browser, turning the Content-Security-Policy off for a
+  // moment says whether the policy is the cause - a question that otherwise
+  // takes hours, because a CSP refusal surfaces as a vague browser error
+  // rather than as anything naming CSP.
+  disableCsp: process.env.DISABLE_CSP === 'true',
   sessionHours: parseInt(process.env.SESSION_HOURS || '12', 10),
 
   // --- storage ---
