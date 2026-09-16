@@ -648,61 +648,166 @@
     });
   }
 
-  function uploadFiles(entries) {
+  // Junk that is rebuilt on the server or belongs to version control. Sending
+  // it wastes minutes and is exactly what used to blow past the upload limits.
+  var SKIP_DIRS = ['node_modules', '.git', '.svn', '.hg', '.next', '.nuxt', '.cache', 'vendor/bin'];
+  var SKIP_FILES = ['.DS_Store', 'Thumbs.db', 'desktop.ini'];
+
+  function classify(entries) {
+    var keep = [];
+    var skipped = { byDir: {}, files: 0 };
+    entries.forEach(function (e) {
+      var parts = e.path.split('/');
+      var name = parts[parts.length - 1];
+      var dirHit = null;
+      for (var i = 0; i < parts.length - 1; i += 1) {
+        if (SKIP_DIRS.indexOf(parts[i]) !== -1) { dirHit = parts[i]; break; }
+      }
+      if (dirHit) {
+        skipped.byDir[dirHit] = (skipped.byDir[dirHit] || 0) + 1;
+        return;
+      }
+      if (SKIP_FILES.indexOf(name) !== -1) { skipped.files += 1; return; }
+      keep.push(e);
+    });
+    return { keep: keep, skipped: skipped };
+  }
+
+  /**
+   * Splits an upload into batches. One request with hundreds of files trips
+   * multer's limits, which aborts the stream mid-flight and surfaces as an
+   * opaque "Unexpected end of form", so the browser paces itself instead.
+   */
+  function makeBatches(entries) {
+    var MAX_FILES = 60;
+    var MAX_BYTES = 40 * 1024 * 1024;
+    var batches = [];
+    var batch = [];
+    var bytes = 0;
+
+    entries.forEach(function (e) {
+      var size = e.file.size || 0;
+      // A single file bigger than the batch budget gets a request to itself.
+      if (batch.length && (batch.length >= MAX_FILES || bytes + size > MAX_BYTES)) {
+        batches.push(batch);
+        batch = [];
+        bytes = 0;
+      }
+      batch.push(e);
+      bytes += size;
+    });
+    if (batch.length) batches.push(batch);
+    return batches;
+  }
+
+  function sendBatch(batch, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var fd = new FormData();
+      fd.append('path', current);
+      var paths = [];
+      batch.forEach(function (e) {
+        fd.append('files', e.file);
+        paths.push(e.path);
+      });
+      fd.append('relpaths', JSON.stringify(paths));
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/sites/' + SITE_ID + '/files/upload');
+      xhr.setRequestHeader('X-CSRF-Token', HP.CSRF);
+      xhr.setRequestHeader('Accept', 'application/json');
+
+      xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      });
+
+      xhr.addEventListener('load', function () {
+        var res = {};
+        try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(res);
+        else reject(new Error(res.error || ('Upload failed (' + xhr.status + ')')));
+      });
+      xhr.addEventListener('error', function () {
+        reject(new Error('The connection dropped during the upload'));
+      });
+      xhr.addEventListener('abort', function () { reject(new Error('Upload cancelled')); });
+
+      xhr.send(fd);
+    });
+  }
+
+  async function uploadFiles(entries) {
     if (!entries.length) return;
 
-    var fd = new FormData();
-    fd.append('path', current);
-    var paths = [];
-    entries.forEach(function (e) {
-      fd.append('files', e.file);
-      paths.push(e.path);
-    });
-    fd.append('relpaths', JSON.stringify(paths));
+    // Offer to leave out the folders that should not be uploaded at all.
+    var sorted_ = classify(entries);
+    var dirNames = Object.keys(sorted_.skipped.byDir);
+    if (dirNames.length) {
+      var summary = dirNames.map(function (d) {
+        return d + ' (' + sorted_.skipped.byDir[d] + ' files)';
+      }).join(', ');
+      var skip = confirm(
+        'This upload includes ' + summary + '.\n\n' +
+        'These are usually rebuilt on the server or belong to version control. ' +
+        'Skip them?\n\nOK = skip them (recommended)\nCancel = upload everything'
+      );
+      if (skip) entries = sorted_.keep;
+    } else if (sorted_.skipped.files) {
+      entries = sorted_.keep;
+    }
+
+    if (!entries.length) { HP.toast('Nothing left to upload', 'error'); return; }
+
+    var batches = makeBatches(entries);
+    var totalBytes = entries.reduce(function (n, e) { return n + (e.file.size || 0); }, 0);
+    var doneBytes = 0;
+    var savedCount = 0;
+    var failures = [];
 
     var bar = document.getElementById('upload-bar');
     var fill = document.getElementById('upload-fill');
     var label = document.getElementById('upload-label');
     bar.classList.add('on');
     fill.style.width = '0%';
-    label.textContent = 'Uploading ' + entries.length + ' file' + (entries.length === 1 ? '' : 's') + '...';
 
-    // XHR rather than fetch, because it reports upload progress.
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/sites/' + SITE_ID + '/files/upload');
-    xhr.setRequestHeader('X-CSRF-Token', HP.CSRF);
-    xhr.setRequestHeader('Accept', 'application/json');
-
-    xhr.upload.addEventListener('progress', function (e) {
-      if (!e.lengthComputable) return;
-      var pct = Math.round((e.loaded / e.total) * 100);
+    function show(extra) {
+      var pct = totalBytes ? Math.min(100, Math.round((doneBytes / totalBytes) * 100)) : 0;
       fill.style.width = pct + '%';
       label.textContent = 'Uploading ' + entries.length + ' file' +
-        (entries.length === 1 ? '' : 's') + ' - ' + pct + '%';
-    });
+        (entries.length === 1 ? '' : 's') + ' - ' + pct + '%' +
+        (batches.length > 1 ? ' (' + extra + ')' : '');
+    }
+    show('batch 1 of ' + batches.length);
 
-    xhr.addEventListener('load', function () {
-      bar.classList.remove('on');
-      var res = {};
-      try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        var n = (res.saved || []).length;
-        HP.toast('Uploaded ' + n + ' file' + (n === 1 ? '' : 's'), 'ok');
-        if (res.failed && res.failed.length) {
-          HP.toast(res.failed.length + ' file(s) were rejected: ' + res.failed[0].error, 'error');
+    for (var i = 0; i < batches.length; i += 1) {
+      var batchBytes = batches[i].reduce(function (n, e) { return n + (e.file.size || 0); }, 0);
+      var base = doneBytes;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        var res = await sendBatch(batches[i], function (loaded) {
+          doneBytes = base + loaded;
+          show('batch ' + (i + 1) + ' of ' + batches.length);
+        });
+        savedCount += (res.saved || []).length;
+        if (res.failed && res.failed.length) failures = failures.concat(res.failed);
+      } catch (err) {
+        bar.classList.remove('on');
+        HP.toast(err.message, 'error');
+        if (savedCount) {
+          HP.toast(savedCount + ' file(s) uploaded before it stopped', 'ok');
+          load(current);
         }
-        load(current);
-      } else {
-        HP.toast(res.error || ('Upload failed (' + xhr.status + ')'), 'error');
+        return;
       }
-    });
+      doneBytes = base + batchBytes;
+      show('batch ' + (i + 1) + ' of ' + batches.length);
+    }
 
-    xhr.addEventListener('error', function () {
-      bar.classList.remove('on');
-      HP.toast('Upload failed', 'error');
-    });
-
-    xhr.send(fd);
+    bar.classList.remove('on');
+    HP.toast('Uploaded ' + savedCount + ' file' + (savedCount === 1 ? '' : 's'), 'ok');
+    if (failures.length) {
+      HP.toast(failures.length + ' file(s) were rejected: ' + failures[0].error, 'error');
+    }
+    load(current);
   }
 
   /* ------------------------------------------- whole-page drop zone -- */

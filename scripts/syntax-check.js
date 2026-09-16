@@ -92,6 +92,35 @@ function walk(dir) {
 
 walk(root);
 
+/*
+ * The JavaScript inside a template's <script> blocks is opaque to the EJS
+ * compiler - it is just text. That leaves hundreds of lines unchecked, so
+ * parse them here with the EJS tags stubbed out.
+ */
+for (const file of ejsFiles) {
+  const src = fs.readFileSync(file, 'utf8');
+  const blocks = src.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g) || [];
+
+  blocks.forEach((block, index) => {
+    const body = block
+      .replace(/^<script[^>]*>/, '')
+      .replace(/<\/script>$/, '')
+      // Output tags become a literal; control tags carry JS that stays.
+      .replace(/<%[-=]\s*([\s\S]*?)\s*-?%>/g, '0')
+      .replace(/<%_?\s*([\s\S]*?)\s*_?%>/g, '$1');
+
+    checked += 1;
+    try {
+      new vm.Script(body, { filename: `${file} <script #${index + 1}>` });
+    } catch (err) {
+      failures += 1;
+      console.error(
+        `FAIL ${path.relative(process.cwd(), file)} (inline script #${index + 1})\n     ${err.message}\n`
+      );
+    }
+  });
+}
+
 // Every include target must exist, whichever compiler was used.
 for (const file of ejsFiles) {
   const src = fs.readFileSync(file, 'utf8');

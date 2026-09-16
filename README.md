@@ -159,7 +159,9 @@ live on the site page. Without a domain the site is still reachable at
 **Files.** A proper file manager:
 
 - **Drag anywhere to upload** — drop files *or whole folders* onto the page and
-  the directory structure is recreated, with a progress bar.
+  the directory structure is recreated, with a progress bar. Large uploads are
+  sent in batches automatically, and dropping a project folder offers to skip
+  `node_modules`, `.git` and similar — they are rebuilt on the server anyway.
 - **Drag to move** — drag rows onto a folder, or onto a breadcrumb to move up a
   level. Multi-select with checkboxes, shift-click for a range.
 - **Filter and sort** — filter the current folder, sort by name, size or date.
@@ -477,6 +479,10 @@ on the site page, then read the container log. For Node, confirm the app binds
 **WordPress redirect loop** — usually a stale `WP_HOME`/`WP_SITEURL`. The panel
 sets both from the domain at container creation, so set the domain first and
 then rebuild.
+
+**"Unexpected end of form" when uploading** — that was a multer limit being hit
+mid-stream. Uploads are now batched by the browser and limit errors say what
+actually happened. If you still see it, the connection dropped part-way through.
 
 **Terminal won't connect** — if the panel is behind a proxy, that proxy must
 allow websocket upgrades. In NPMplus that is the "Websockets Support" toggle.

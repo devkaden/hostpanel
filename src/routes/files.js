@@ -14,11 +14,55 @@ const { loadSite, wrap } = require('../middleware');
 
 const router = express.Router();
 
+// The browser uploads in batches, so one request never carries a huge number
+// of files. The ceiling here is generous enough that a batch never trips it.
+const MAX_FILES_PER_REQUEST = 200;
+
 const upload = multer({
   dest: config.tmpDir,
-  // A dropped folder can carry a lot of small files.
-  limits: { fileSize: config.maxUploadBytes, files: 500 },
+  limits: {
+    fileSize: config.maxUploadBytes,
+    files: MAX_FILES_PER_REQUEST,
+    // relpaths is one JSON string listing every file in the batch.
+    fieldSize: 2 * 1024 * 1024,
+    parts: MAX_FILES_PER_REQUEST + 20,
+  },
 });
+
+/**
+ * Turns multer and busboy failures into something a person can act on.
+ *
+ * When a limit is hit, multer tears down the request stream while the browser
+ * is still sending, and busboy then reports "Unexpected end of form" - which
+ * says nothing about the actual cause. These messages name it.
+ */
+function uploadFiles(req, res, next) {
+  upload.array('files', MAX_FILES_PER_REQUEST)(req, res, (err) => {
+    if (!err) return next();
+
+    const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
+    const messages = {
+      LIMIT_FILE_SIZE: `That file is larger than the ${mb} MB limit. Raise MAX_UPLOAD_MB in .env if you need more.`,
+      LIMIT_FILE_COUNT: `Too many files in one request (the limit is ${MAX_FILES_PER_REQUEST}). Upload in smaller batches.`,
+      LIMIT_PART_COUNT: 'Too many parts in one request. Upload in smaller batches.',
+      LIMIT_FIELD_VALUE: 'The upload metadata was too large. Upload in smaller batches.',
+      LIMIT_UNEXPECTED_FILE: 'The upload contained an unexpected field.',
+    };
+
+    if (err.code && messages[err.code]) {
+      return res.status(413).json({ error: messages[err.code], code: err.code });
+    }
+    if (/unexpected end of form/i.test(err.message || '')) {
+      return res.status(400).json({
+        error:
+          'The upload was cut off before it finished. This usually means the browser ' +
+          'stopped sending - try fewer files at once, or check the connection.',
+        code: 'UPLOAD_TRUNCATED',
+      });
+    }
+    return next(err);
+  });
+}
 
 /* ------------------------------------------------------------------ *
  * File manager page
@@ -155,7 +199,7 @@ router.post(
 router.post(
   '/api/sites/:id/files/upload',
   loadSite,
-  upload.array('files', 500),
+  uploadFiles,
   wrap(async (req, res) => {
     const dest = String(req.body.path || '');
     // A dropped folder sends one relative path per file, in the same order.
