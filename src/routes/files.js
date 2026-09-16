@@ -163,6 +163,14 @@ router.put(
   wrap(async (req, res) => {
     const relative = String(req.query.path || '');
     const destDir = String(req.query.dir || '');
+
+    // Logged on arrival, not only on failure. A successful small upload used to
+    // log nothing at all, which made "no log lines" ambiguous: it could mean
+    // the request never arrived, or that it sailed through. That ambiguity cost
+    // more debugging time than the logging costs.
+    const tag = `[upload] ${req.site ? req.site.name : '?'}: ${relative || '(no name)'}`;
+    console.log(`${tag} <- start (${req.get('content-length') || 'unknown'} bytes declared)`);
+
     if (!relative) return res.status(400).json({ error: 'No file name was supplied' });
 
     const mb = Math.round(config.maxUploadBytes / 1024 / 1024);
@@ -173,23 +181,12 @@ router.put(
       });
     }
 
-    // A stalled socket must never hold the request open forever: the browser
-    // would wait on a response that never comes, the socket would stay tied
-    // up, and later uploads would queue behind it against the browser's
-    // per-host connection limit.
-    //
-    // The callback matters. setTimeout() without one only emits 'timeout' and
-    // leaves the socket open, which is exactly the hang being guarded against.
-    const IDLE_MS = 60000;
-    req.setTimeout(IDLE_MS, () => {
-      req.destroy(new Error(`Timed out receiving "${relative}"`));
-    });
-
     await fsp.mkdir(config.tmpDir, { recursive: true });
     const tmp = path.join(config.tmpDir, `up-${crypto.randomBytes(10).toString('hex')}`);
 
     let written = 0;
     let tooBig = false;
+    let lastChunkAt = Date.now();
 
     // Counting in a Transform rather than a 'data' listener. Attaching 'data'
     // puts the request into flowing mode, which fights pipe()'s backpressure
@@ -197,6 +194,7 @@ router.put(
     const counter = new Transform({
       transform(chunk, _enc, cb) {
         written += chunk.length;
+        lastChunkAt = Date.now();
         if (written > config.maxUploadBytes) {
           tooBig = true;
           return cb(new Error(`"${relative}" is over the ${mb} MB limit.`));
@@ -205,25 +203,54 @@ router.put(
       },
     });
 
+    // A stalled upload must never hold the request open forever: the browser
+    // waits on a response that never comes, the socket stays tied up, and
+    // later uploads queue behind it against the browser's per-host connection
+    // limit.
+    //
+    // Deliberately NOT req.setTimeout(). That sets the timeout on the *socket*,
+    // which outlives this request - with keep-alive the browser reuses the
+    // connection, so the timer keeps running against the next upload and the
+    // callback still holds a reference to this one. An idle keep-alive
+    // connection would then be reported as a file that timed out.
+    //
+    // This watches the bytes instead, and says what it actually saw, which is
+    // the difference between "the upload stalled" and "the browser opened a
+    // request and then sent nothing at all".
+    const IDLE_MS = 60000;
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastChunkAt < IDLE_MS) return;
+      clearInterval(watchdog);
+      req.destroy(
+        new Error(
+          `no data for ${IDLE_MS / 1000}s - received ${written} of ` +
+            `${declared || 'an unknown number of'} bytes`
+        )
+      );
+    }, 5000);
+    if (watchdog.unref) watchdog.unref();
+
     const started = Date.now();
     try {
       await pipeline(req, counter, fs.createWriteStream(tmp));
       await fm.saveUploadNested(req.site, destDir, relative, tmp);
 
+      clearInterval(watchdog);
       const ms = Date.now() - started;
-      if (ms > 5000 || written > 10 * 1024 * 1024) {
-        console.log(
-          `[upload] ${req.site.name}: ${relative} (${written} bytes) in ${Math.round(ms / 100) / 10}s`
-        );
-      }
+      console.log(`${tag} -> ok, ${written} bytes in ${Math.round(ms / 100) / 10}s`);
       return res.json({ ok: true, path: relative, bytes: written });
     } catch (err) {
+      clearInterval(watchdog);
       await fsp.unlink(tmp).catch(() => {});
-      const timedOut = err.code === 'ECONNRESET' || /timeout|aborted/i.test(err.message || '');
-      console.error(`[upload] ${req.site.name}: ${relative} failed - ${err.message}`);
+      const stalled = err.code === 'ECONNRESET' || /timeout|no data|aborted/i.test(err.message || '');
+      console.error(
+        `${tag} -> FAILED after ${written} of ${declared || '?'} bytes: ${err.message}` +
+          (err.code ? ` (${err.code})` : '')
+      );
       return res.status(tooBig ? 413 : 400).json({
-        error: timedOut
-          ? `The connection stalled while uploading "${relative}".`
+        error: stalled
+          ? `The browser stopped sending "${relative}" after ${written} of ` +
+            `${declared || 'an unknown number of'} bytes.`
           : err.message,
         path: relative,
       });

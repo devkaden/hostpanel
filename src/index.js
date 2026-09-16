@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fsSync = require('fs');
 const http = require('http');
 const express = require('express');
 const session = require('express-session');
@@ -28,6 +29,33 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use('/static', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+
+/**
+ * A cache-busting token for /static assets, from the newest mtime under it.
+ *
+ * Those files are served with a long max-age, which is right for a LAN panel
+ * but means a browser will not even ask whether app.js changed. Appending this
+ * to the URL makes an update a different URL, so a pull that changes the CSS or
+ * the client helpers takes effect on the next page load instead of whenever the
+ * old copy happens to expire.
+ */
+const ASSET_VERSION = (() => {
+  const dir = path.join(__dirname, 'public');
+  let newest = 0;
+  const walk = (d) => {
+    for (const entry of fsSync.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
+    }
+  };
+  try { walk(dir); } catch (_) { /* fall through to the timestamp below */ }
+  return String(Math.round(newest || Date.now()));
+})();
+
+// Always available to every template, including the error pages that render
+// before the per-request locals are set.
+app.locals.assetVersion = ASSET_VERSION;
 
 // xterm.js is served from node_modules so the panel works on an offline LAN.
 const MODULES = path.join(__dirname, '..', 'node_modules');
@@ -95,6 +123,23 @@ app.use((req, res, next) => {
   if (config.secureCookies) {
     res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+
+  // Panel pages must never be cached.
+  //
+  // Every page carries its behaviour inline, so a cached page means cached
+  // JavaScript - and an update that changes only a view leaves the browser
+  // quietly running the old code. Without this header a browser is free to
+  // invent its own freshness lifetime, which cost a long debugging session:
+  // fix after fix appeared to change nothing because the page under test was
+  // the one served before the fix existed.
+  //
+  // It also keeps authenticated pages out of a shared cache, and off disk
+  // after logout.
+  //
+  // /static and /vendor are mounted earlier and never reach this, so the
+  // fingerprint-free assets there keep their long max-age.
+  res.set('Cache-Control', 'no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
   next();
 });
 

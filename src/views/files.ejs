@@ -754,7 +754,19 @@
    * Uploads one file as a raw PUT. No multipart, so there is no form that can
    * end unexpectedly - a failure names the file it belongs to.
    */
+  // Uploads are the one part of this page that fails in ways a screenshot
+  // cannot explain: a request that is never sent looks exactly like one that
+  // is never answered. Every step says so in the console, so "it hangs" can be
+  // narrowed to a line.
+  function ulog() {
+    try {
+      var args = ['[upload]'].concat(Array.prototype.slice.call(arguments));
+      console.log.apply(console, args);
+    } catch (_) { /* console can be absent in odd embeddings */ }
+  }
+
   function putFile(item, file, onFraction) {
+    ulog('sending', item.path, (file && file.size != null) ? file.size + ' bytes' : '');
     return new Promise(function (resolve, reject) {
       var url = '/api/sites/' + SITE_ID + '/files/raw' +
         '?dir=' + encodeURIComponent(current) +
@@ -785,13 +797,16 @@
         var res = {};
         try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
         onFraction(1);
+        ulog('response', item.path, xhr.status, xhr.responseText.slice(0, 200));
         if (xhr.status >= 200 && xhr.status < 300) done(resolve, res);
         else done(reject, new Error(res.error || (item.path + ' failed (' + xhr.status + ')')));
       });
       xhr.addEventListener('error', function () {
+        ulog('network error', item.path, 'readyState', xhr.readyState);
         done(reject, new Error('The connection dropped while uploading ' + item.path));
       });
       xhr.addEventListener('timeout', function () {
+        ulog('client timeout', item.path, 'readyState', xhr.readyState);
         done(reject, new Error(item.path + ' timed out - the upload stalled'));
       });
       xhr.addEventListener('abort', function () {
@@ -801,6 +816,7 @@
       try {
         xhr.send(file);
       } catch (err) {
+        ulog('send threw', item.path, err && err.message);
         done(reject, new Error('Could not read ' + item.path + ' from disk'));
       }
     });

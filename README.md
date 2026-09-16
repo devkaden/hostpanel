@@ -205,11 +205,31 @@ looks frozen. The server drops a receive that stalls for 60 seconds; the
 browser gives a file 120 seconds, retries it once, then reports that file and
 moves on to the next.
 
-If an upload misbehaves, the server logs every slow or failed transfer:
+If an upload misbehaves, the server logs every transfer, not only the failures
+— "no log lines" is otherwise ambiguous between a request that never arrived
+and one that sailed through:
 
 ```bash
 journalctl -u hostpanel -f | grep upload
 ```
+
+Each file produces a `<- start` line with the declared size and then either
+`-> ok` with the bytes and duration, or `-> FAILED` with how many of the
+declared bytes actually arrived. That last number is the useful one: `0 of
+4211` means the browser opened the request and then sent nothing, which is a
+browser-side problem, while `4000 of 4211` is a connection that died in flight.
+
+To take the browser out of the picture entirely, run the live self-test on the
+panel host:
+
+```bash
+cd /opt/hostpanel/app && npm run test:upload-live
+```
+
+It mints its own session, uploads five real files (empty, tiny, nested, 1 MB,
+8 MB) to a real site over the real HTTP port, checks an oversized one is
+refused, and cleans up after itself. If it passes, the server is fine and the
+problem is between the browser and that port.
 
 Every path is resolved against the site root. Traversal, symlink escapes and
 zip-slip are rejected, and each segment of an uploaded folder path is validated

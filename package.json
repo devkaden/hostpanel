@@ -17,7 +17,8 @@
     "test:security": "node scripts/test-security.js",
     "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js && node scripts/test-config.js && node scripts/test-uploads.js",
     "test:config": "node scripts/test-config.js",
-    "test:uploads": "node scripts/test-uploads.js"
+    "test:uploads": "node scripts/test-uploads.js",
+    "test:upload-live": "node scripts/upload-selftest.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

@@ -91,6 +91,9 @@ function walk(dir) {
 }
 
 walk(root);
+// The helper scripts ship too, and a broken one is only discovered when
+// someone runs it at the exact moment they need it to work.
+walk(__dirname);
 
 /*
  * The JavaScript inside a template's <script> blocks is opaque to the EJS
