@@ -16,7 +16,7 @@
     "test:npmplus": "node scripts/test-npmplus.js",
     "reset-admin": "node scripts/reset-admin.js",
     "test:security": "node scripts/test-security.js",
-    "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js && node scripts/test-config.js && node scripts/test-uploads.js && node scripts/test-totp.js && node scripts/test-preview.js && node scripts/test-alerts.js && node scripts/test-ui.js && node scripts/test-ratelimit.js",
+    "test": "node scripts/syntax-check.js && node scripts/test-npmplus.js && node scripts/test-security.js && node scripts/test-config.js && node scripts/test-uploads.js && node scripts/test-totp.js && node scripts/test-preview.js && node scripts/test-alerts.js && node scripts/test-ui.js && node scripts/test-ratelimit.js && node scripts/test-certpin.js",
     "test:config": "node scripts/test-config.js",
     "test:uploads": "node scripts/test-uploads.js",
     "test:upload-live": "node scripts/upload-selftest.js",
@@ -24,7 +24,8 @@
     "test:preview": "node scripts/test-preview.js",
     "test:alerts": "node scripts/test-alerts.js",
     "test:ui": "node scripts/test-ui.js",
-    "test:ratelimit": "node scripts/test-ratelimit.js"
+    "test:ratelimit": "node scripts/test-ratelimit.js",
+    "test:certpin": "node scripts/test-certpin.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

@@ -32,7 +32,7 @@ const { URL } = require('url');
 
 const { getSetting } = require('./db');
 const { stripTrailingSlashes } = require('./netutil');
-const { isPrivateHost } = require('./addresses');
+const certpin = require('./certpin');
 
 // Session state: a Bearer token (legacy NPM) and/or a cookie jar (NPMplus).
 let tokenCache = { token: null, cookies: null, expiresAt: 0, forUrl: '' };
@@ -44,7 +44,6 @@ function cfg() {
     password: getSetting('npmplus_password'),
     leEmail: getSetting('npmplus_le_email') || getSetting('npmplus_email'),
     enabled: getSetting('npmplus_enabled') === '1',
-    insecure: getSetting('npmplus_insecure', '0') === '1',
     hostIp: getSetting('host_ip'),
   };
 }
@@ -111,18 +110,15 @@ function request(
     timeout,
   };
   /*
-   * Certificate checking is skipped only when the admin asked for it AND
-   * NPMplus is on this machine or this network.
+   * Certificate verification is always on.
    *
-   * The setting exists because a homelab NPMplus is usually serving its own
-   * admin interface over a certificate it signed itself, and there is no
-   * certificate authority in the picture to fix that. That reasoning stops at
-   * the edge of the LAN: an NPMplus reachable at a public name has a real
-   * certificate available to it, and "the certificate is wrong" out there is
-   * an answer worth hearing rather than a warning to switch off.
+   * A self-signed NPMplus is handled by trusting that one certificate - see
+   * src/certpin.js - rather than by accepting any certificate at all, which is
+   * what this used to do. The difference matters on the network where it is
+   * used: "accept anything" hands the NPMplus administrator password to
+   * whoever answers on that address next.
    */
-  const skipCertCheck = isHttps && c.insecure && isPrivateHost(target.hostname);
-  if (skipCertCheck) options.rejectUnauthorized = false;
+  if (isHttps) Object.assign(options, certpin.tlsOptionsFor(target.hostname));
 
   return new Promise((resolve, reject) => {
     const req = lib.request(options, (res) => {
@@ -175,14 +171,25 @@ function request(
       if (err.code === 'ECONNREFUSED') {
         return reject(new Error(`Could not connect to NPMplus at ${c.url} (connection refused)`));
       }
-      if (err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || err.code === 'SELF_SIGNED_CERT_IN_CHAIN') {
+      const certErrors = [
+        'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'SELF_SIGNED_CERT_IN_CHAIN',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+        'CERT_HAS_EXPIRED',
+        'ERR_TLS_CERT_ALTNAME_INVALID',
+      ];
+      if (certErrors.includes(err.code)) {
+        const pin = certpin.stored();
         return reject(
           new Error(
-            isPrivateHost(target.hostname)
-              ? 'NPMplus is using a self-signed certificate. Enable "Allow self-signed certificate" in Settings.'
-              : `NPMplus at ${target.hostname} is using a certificate that does not check out. That ` +
-                'setting only applies to an address on this machine or this network, so fix the ' +
-                'certificate rather than skipping the check on a public address.'
+            pin
+              ? `NPMplus is not serving the certificate this panel was told to trust ` +
+                `(${pin.fingerprint.slice(0, 17)}...). If you replaced it, press "Trust this ` +
+                'certificate" in Settings again. If you did not, something else is answering ' +
+                `at ${target.hostname}.`
+              : `NPMplus at ${target.hostname} is using a certificate this machine cannot ` +
+                'verify (' + err.code + '). If it signed that certificate itself, press ' +
+                '"Trust this certificate" in Settings to pin it.'
           )
         );
       }

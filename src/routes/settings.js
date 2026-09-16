@@ -9,6 +9,7 @@ const templates = require('../templates');
 const auth = require('../auth');
 const docker = require('../docker');
 const npmplus = require('../npmplus');
+const certpin = require('../certpin');
 const terminal = require('../terminal');
 const { detectHostIp, humanBytes, stripTrailingSlashes } = require('../netutil');
 const { wrap } = require('../middleware');
@@ -45,6 +46,7 @@ router.get(
       templates: templates.list(),
       effectivePanelPort: config.port,
       security: securityReview(),
+      pinnedCert: certpin.stored(),
     });
   })
 );
@@ -212,7 +214,6 @@ router.post(
     setSetting('npmplus_email', String(body.npmplus_email || '').trim());
     setSetting('npmplus_le_email', String(body.npmplus_le_email || '').trim());
     setSetting('npmplus_enabled', body.npmplus_enabled ? '1' : '0');
-    setSetting('npmplus_insecure', body.npmplus_insecure ? '1' : '0');
 
     // Only overwrite the stored password when a new one was actually typed.
     const pw = String(body.npmplus_password || '');
@@ -233,7 +234,6 @@ router.post(
       npmplus_url: stripTrailingSlashes(req.body.npmplus_url),
       npmplus_email: String(req.body.npmplus_email || '').trim(),
       npmplus_password: String(req.body.npmplus_password || ''),
-      npmplus_insecure: req.body.npmplus_insecure ? '1' : '0',
     };
 
     const previous = {};
@@ -343,6 +343,58 @@ router.post(
       problems: results.filter((r) => !r.ok || r.fixed.length).length,
       results,
     });
+  })
+);
+
+/* ------------------------------------------------------------------ *
+ * The NPMplus certificate
+ * ------------------------------------------------------------------ *
+ * Fetching and trusting are separate calls on purpose. The point of pinning is
+ * that a person looked at the fingerprint and said yes; a single button that
+ * fetched and trusted in one step would be "accept whatever is there" again,
+ * wearing a better name.
+ */
+router.post(
+  '/settings/npmplus/certificate/fetch',
+  auth.requireAdmin,
+  wrap(async (req, res) => {
+    const url = stripTrailingSlashes(req.body.npmplus_url) || getSetting('npmplus_url');
+    if (!url) return res.status(400).json({ error: 'Fill in the NPMplus URL first.' });
+    try {
+      const found = await certpin.capture(url);
+      // The certificate itself goes back to the browser so that trusting it is
+      // a decision about the thing that was shown, not a second fetch that
+      // might return something else.
+      return res.json({ ok: true, cert: found });
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
+    }
+  })
+);
+
+router.post(
+  '/settings/npmplus/certificate/trust',
+  auth.requireAdmin,
+  wrap(async (req, res) => {
+    try {
+      const details = certpin.trust(req.body.pem);
+      npmplus.invalidateToken();
+      audit(req, 'npmplus.certificate_trusted', details.subject, details.fingerprint);
+      return res.json({ ok: true, cert: details });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  })
+);
+
+router.post(
+  '/settings/npmplus/certificate/forget',
+  auth.requireAdmin,
+  wrap(async (req, res) => {
+    certpin.forget();
+    npmplus.invalidateToken();
+    audit(req, 'npmplus.certificate_forgotten', 'npmplus');
+    return res.json({ ok: true });
   })
 );
 

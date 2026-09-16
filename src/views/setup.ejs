@@ -94,13 +94,11 @@
       <input id="npmplus_le_email" type="text" value="<%= settings.npmplus_le_email %>" placeholder="you@example.com">
     </div>
 
-    <div class="check">
-      <input type="checkbox" id="npmplus_insecure" <%= settings.npmplus_insecure === '1' ? 'checked' : '' %>>
-      <div>
-        <label for="npmplus_insecure">My NPMplus uses a self-signed certificate</label>
-        <div class="hint">Tick this if the admin page shows a browser security warning.</div>
-      </div>
-    </div>
+    <p class="muted small">
+      If the NPMplus admin page shows a browser security warning, it signed its own certificate.
+      Finish here, then use <strong>Settings &rarr; Reverse Proxy &rarr; Trust This Certificate</strong>
+      so the panel trusts that one certificate.
+    </p>
 
     <div class="btn-row">
       <button class="btn" type="button" id="test">Test Connection</button>
@@ -150,8 +148,7 @@
       npmplus_url: document.getElementById('npmplus_url').value,
       npmplus_email: document.getElementById('npmplus_email').value,
       npmplus_password: document.getElementById('npmplus_password').value,
-      npmplus_le_email: document.getElementById('npmplus_le_email').value,
-      npmplus_insecure: document.getElementById('npmplus_insecure').checked
+      npmplus_le_email: document.getElementById('npmplus_le_email').value
     };
   }
 

@@ -229,11 +229,51 @@
             <div class="hint">Used for expiry notices on certificates the panel requests. Falls back to the admin email.</div>
           </div>
 
-          <div class="check">
-            <input type="checkbox" id="npmplus_insecure" name="npmplus_insecure" <%= settings.npmplus_insecure === '1' ? 'checked' : '' %>>
-            <div>
-              <label for="npmplus_insecure">Allow a self-signed certificate on the NPMplus admin interface</label>
-              <div class="hint">Only affects the panel's API calls to NPMplus, not your sites.</div>
+          <div class="field">
+            <label>NPMplus Certificate</label>
+            <div id="cert-pin">
+              <% if (pinnedCert) { %>
+                <div class="pin-card<%= pinnedCert.expired ? ' pin-bad' : '' %>">
+                  <div class="pin-head">
+                    <%- icon(pinnedCert.expired ? 'alert' : 'shield') %>
+                    <strong><%= pinnedCert.expired ? 'The trusted certificate has expired' : 'Trusting one certificate' %></strong>
+                  </div>
+                  <dl class="dl">
+                    <dt>Issued To</dt><dd><%= pinnedCert.subject %></dd>
+                    <dt>Fingerprint</dt><dd class="mono small"><%= pinnedCert.fingerprint %></dd>
+                    <dt>Expires</dt><dd><%= pinnedCert.validTo %></dd>
+                  </dl>
+                  <div class="btn-row">
+                    <button class="btn btn-sm" type="button" id="cert-trust">Fetch It Again</button>
+                    <button class="btn btn-sm btn-danger" type="button" id="cert-forget">Stop Trusting It</button>
+                  </div>
+                </div>
+              <% } else { %>
+                <p class="muted small" style="margin:0 0 .5rem">
+                  The panel verifies the NPMplus certificate like any other. If NPMplus signed its own
+                  &mdash; which is usual on a homelab &mdash; fetch it, check the fingerprint, and the
+                  panel will trust that one certificate and no other.
+                </p>
+                <div class="btn-row">
+                  <button class="btn btn-sm" type="button" id="cert-trust">
+                    <%- icon('shield') %><span>Trust This Certificate</span>
+                  </button>
+                  <button class="btn btn-sm adv" type="button" id="cert-paste">Paste It Instead</button>
+                </div>
+              <% } %>
+            </div>
+            <div id="cert-result" class="mt"></div>
+            <div class="field adv mt" id="cert-paste-field" style="display:none">
+              <label for="cert-pem">Certificate (PEM)</label>
+              <textarea id="cert-pem" rows="6" spellcheck="false"
+                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+              <div class="hint">
+                On the NPMplus host:
+                <code class="inline">openssl s_client -connect &lt;host&gt;:&lt;port&gt; &lt;/dev/null | openssl x509</code>
+              </div>
+              <div class="btn-row">
+                <button class="btn btn-sm" type="button" id="cert-save-pem">Trust This Certificate</button>
+              </div>
             </div>
           </div>
 
@@ -451,7 +491,7 @@
           npmplus_url: document.getElementById('npmplus_url').value,
           npmplus_email: document.getElementById('npmplus_email').value,
           npmplus_password: document.getElementById('npmplus_password').value,
-          npmplus_insecure: document.getElementById('npmplus_insecure').checked
+          npmplus_url: document.getElementById('npmplus_url').value
         }
       });
       if (res.ok) {
@@ -543,6 +583,99 @@
       });
       if (ok) run(true, btn);
     });
+  })();
+
+  /* ------------------------------------------- the NPMplus certificate */
+  (function () {
+    var box = document.getElementById('cert-result');
+    if (!box) return;
+
+    function say(kind, html) {
+      box.innerHTML = '<div class="alert alert-' + kind + ' mb0">' + html + '</div>';
+    }
+
+    function describe(cert) {
+      return '<div><strong>' + HP.escapeHtml(cert.subject) + '</strong>' +
+        (cert.selfSigned ? ' <span class="muted">(signed by itself)</span>' : '') + '</div>' +
+        '<div class="mono small" style="margin:.35rem 0">' + HP.escapeHtml(cert.fingerprint) + '</div>' +
+        '<div class="muted small">Expires ' + HP.escapeHtml(cert.validTo) + '</div>';
+    }
+
+    async function save(pem) {
+      var res = await HP.api('/settings/npmplus/certificate/trust', { body: { pem: pem } });
+      HP.toast('Now trusting that certificate', 'ok');
+      setTimeout(function () { location.reload(); }, 900);
+      return res;
+    }
+
+    var trustBtn = document.getElementById('cert-trust');
+    if (trustBtn) {
+      trustBtn.addEventListener('click', async function () {
+        trustBtn.disabled = true;
+        trustBtn.setAttribute('data-busy', '1');
+        say('info', 'Asking ' + HP.escapeHtml(document.getElementById('npmplus_url').value) +
+          ' what certificate it is using...');
+        try {
+          var res = await HP.api('/settings/npmplus/certificate/fetch', {
+            body: { npmplus_url: document.getElementById('npmplus_url').value }
+          });
+          var cert = res.cert;
+
+          // Shown before it is trusted, never after: the fingerprint is the
+          // whole point, and it is only worth anything if somebody looks.
+          var ok = await HP.confirm({
+            title: 'Trust this certificate?',
+            message: 'NPMplus is using:\n\n' + cert.subject +
+              '\nFingerprint: ' + cert.fingerprint +
+              '\nExpires: ' + cert.validTo + '\n\n' +
+              'Check that fingerprint against the one NPMplus shows. From then on the panel ' +
+              'accepts this certificate and no other.',
+            confirmText: 'Trust it'
+          });
+          if (ok) await save(cert.pem);
+          else say('info', 'Nothing was changed.');
+        } catch (err) {
+          say('error', HP.escapeHtml(err.message));
+        }
+        trustBtn.disabled = false;
+        trustBtn.removeAttribute('data-busy');
+      });
+    }
+
+    var pasteBtn = document.getElementById('cert-paste');
+    if (pasteBtn) {
+      pasteBtn.addEventListener('click', function () {
+        var field = document.getElementById('cert-paste-field');
+        field.style.display = field.style.display === 'none' ? '' : 'none';
+      });
+    }
+
+    var savePem = document.getElementById('cert-save-pem');
+    if (savePem) {
+      savePem.addEventListener('click', async function () {
+        try { await save(document.getElementById('cert-pem').value); }
+        catch (err) { say('error', HP.escapeHtml(err.message)); }
+      });
+    }
+
+    var forget = document.getElementById('cert-forget');
+    if (forget) {
+      forget.addEventListener('click', async function () {
+        var ok = await HP.confirm({
+          title: 'Stop trusting it?',
+          message: 'The panel will verify the NPMplus certificate the ordinary way. If NPMplus ' +
+            'signed its own, the connection will stop working until you trust it again.',
+          confirmText: 'Stop trusting it',
+          danger: true
+        });
+        if (!ok) return;
+        try {
+          await HP.api('/settings/npmplus/certificate/forget');
+          HP.toast('No longer trusting it', 'ok');
+          setTimeout(function () { location.reload(); }, 900);
+        } catch (err) { say('error', HP.escapeHtml(err.message)); }
+      });
+    }
   })();
 
   document.getElementById('load-hosts').addEventListener('click', async function () {

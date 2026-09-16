@@ -22,7 +22,6 @@ const settings = {
   npmplus_password: 'correct-horse',
   npmplus_le_email: 'admin@example.com',
   npmplus_enabled: '1',
-  npmplus_insecure: '0',
   host_ip: '192.168.1.50',
 };
 const dbPath = path.join(APP, 'db.js');

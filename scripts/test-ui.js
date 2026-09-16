@@ -229,6 +229,55 @@ console.log('\nchecking and fixing proxy hosts');
     'adopting someone else\'s host is a decision, not a side effect');
 }
 
+/* ------------------------------------------------------------- mobile --- */
+console.log('\non a phone');
+{
+  const css = read('src/public/css/app.css');
+
+  /*
+   * A grid track wider than the screen pushes the whole page sideways, and it
+   * is the single most common way a desktop layout breaks on a phone:
+   * `minmax(330px, 1fr)` keeps its 330px even in a 360px-wide window with
+   * padding on both sides.
+   */
+  const rigid = (css.match(/minmax\(\d+px,\s*1fr\)/g) || []);
+  check('no grid track can be wider than the screen', rigid.length === 0, rigid.join(', '));
+  check('they are capped against the container instead',
+    (css.match(/minmax\(min\(\d+px, 100%\), 1fr\)/g) || []).length >= 5);
+
+  check('there is a phone breakpoint', /@media \(max-width: 520px\)/.test(css));
+  check('and one for small tablets', /@media \(max-width: 860px\)/.test(css));
+
+  // Safari zooms the page when a focused input is under 16px, and does not
+  // zoom back out.
+  check('inputs are 16px on small screens',
+    /@media \(max-width: 720px\)[\s\S]*?input, select, textarea \{ font-size: 16px; \}/.test(css),
+    'otherwise focusing a field zooms the page in and leaves it there');
+
+  check('tap targets are big enough to tap',
+    /\.btn \{ min-height: 40px/.test(css) && /\.icon-btn \{ width: 38px/.test(css));
+
+  check('the top nav scrolls rather than wrapping', /\.topnav \{[\s\S]{0,200}overflow-x: auto/.test(css));
+  check('and the settings tabs too',
+    /\.settings-nav \{ overflow-x: auto/.test(css));
+
+  check('long unbreakable strings cannot widen the page',
+    /code, \.mono, \.console, \.preview-url \{ overflow-wrap: anywhere; \}/.test(css),
+    'container names, paths and fingerprints are the usual culprits');
+  check('and nor can an image or a frame',
+    /img, svg, iframe, video \{ max-width: 100%; \}/.test(css));
+
+  check('the preview is not 460px tall on a phone',
+    /\.preview-frame\.size-desktop \{ height: 300px; \}/.test(css));
+
+  // Every page is built from .wrap, so one rule covers the lot.
+  check('the page gutter tightens up', /\.wrap \{ padding: 1\.1rem \.9rem 3rem; \}/.test(css));
+
+  const head = read('src/views/partials/head.ejs');
+  check('the viewport meta is there',
+    /<meta name="viewport" content="width=device-width, initial-scale=1">/.test(head));
+}
+
 /* ----------------------------------------------------- security page ---- */
 console.log('\nthe security page');
 {

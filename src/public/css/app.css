@@ -246,9 +246,9 @@ h3 { font-size: .95rem; margin: 0 0 .6rem; }
 .card-head h2 { margin: 0; }
 
 .grid { display: grid; gap: 1.1rem; }
-.grid-2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
-.grid-3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
-.grid-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); }
 
 /* ----------------------------------------------------------------- stats */
 .stat {
@@ -330,7 +330,7 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-size: .84rem; }
 .field { margin-bottom: .95rem; }
 .field .hint { color: var(--muted); font-size: .78rem; margin-top: .3rem; }
-.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .95rem; }
+.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: .95rem; }
 .check { display: flex; align-items: flex-start; gap: .55rem; margin-bottom: .8rem; }
 .check input { margin-top: .22rem; width: auto; }
 .check label { margin: 0; color: var(--text); font-size: .9rem; }
@@ -359,7 +359,7 @@ textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-si
 .auth-logo img, .brand-mark img { width: 100%; height: 100%; object-fit: contain; }
 
 /* ------------------------------------------------------------ site cards */
-.site-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+.site-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 1rem; }
 .site-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -419,6 +419,21 @@ textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-si
 .rename-row { display: flex; gap: .5rem; align-items: center; }
 .rename-row input { margin: 0; }
 .rename-row .btn { flex: none; }
+
+/* ------------------------------------------------- pinned certificate --- */
+.pin-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: .85rem 1rem;
+}
+.pin-card.pin-bad { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
+.pin-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; font-size: .92rem; }
+.pin-head .ico { color: var(--green); flex: none; }
+.pin-card.pin-bad .pin-head .ico { color: var(--amber); }
+.pin-card .dl { margin: 0 0 .75rem; }
+.pin-card .btn-row { margin: 0; }
+#cert-pem { font-family: var(--mono); font-size: .8rem; }
 
 /* ----------------------------------------------------- proxy summary --- */
 /* One sentence about the domain, rather than a table of NPMplus record ids.
@@ -1002,7 +1017,7 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .twofa-key { flex: 1; min-width: 260px; }
 .recovery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr));
   gap: .5rem;
   margin-top: .9rem;
 }
@@ -1232,3 +1247,100 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   animation: hp-spin .6s linear infinite;
 }
 @keyframes hp-spin { to { transform: rotate(360deg); } }
+
+/* ================================================================== *
+ * Phones and small tablets
+ * ================================================================== *
+ * The panel gets used from a phone more than it looks - checking whether a
+ * site came back up is a thing people do from wherever they are. Three rules
+ * shape what follows:
+ *
+ *   1. Nothing may push the page sideways. A layout that scrolls horizontally
+ *      on a phone feels broken even when everything is technically present.
+ *   2. Anything you tap has to be big enough to tap, which is roughly 44px.
+ *   3. Inputs are 16px, because Safari zooms the whole page in when you focus
+ *      a smaller one and then leaves you zoomed.
+ */
+
+/* Long, unbreakable strings - container names, paths, fingerprints - are the
+   usual reason a page ends up wider than the screen. */
+code, .mono, .console, .preview-url { overflow-wrap: anywhere; }
+img, svg, iframe, video { max-width: 100%; }
+.table-wrap { -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 860px) {
+  /* The nav scrolls rather than wrapping into a second row that pushes the
+     page content down the screen. */
+  .topnav {
+    flex: 1 1 100%;
+    order: 3;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: .15rem;
+  }
+  .topnav::-webkit-scrollbar { display: none; }
+  .topnav a { white-space: nowrap; }
+  .topbar { height: auto; padding: .6rem 1rem; gap: .6rem; }
+  .topbar-right { margin-left: auto; }
+}
+
+@media (max-width: 720px) {
+  .wrap { padding: 1.1rem .9rem 3rem; }
+  .page-head { gap: .7rem; margin-bottom: 1.1rem; }
+  .page-head h1 { font-size: 1.28rem; }
+  .card { padding: 1rem; }
+
+  /* 16px, or Safari zooms in on focus and stays there. */
+  input, select, textarea { font-size: 16px; }
+
+  /* Comfortably tappable without making the desktop look padded. */
+  .btn { min-height: 40px; padding: .5rem .85rem; }
+  .icon-btn { width: 38px; height: 38px; }
+  .menu-item { padding: .65rem .6rem; }
+  .settings-nav button, .tabs a { min-height: 42px; }
+
+  /* Rows of buttons become full-width stacks rather than a ragged wrap. */
+  .page-actions { width: 100%; }
+  .page-actions > .btn, .page-actions > form, .page-actions > form > .btn { flex: 1; }
+
+  .settings-nav { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav button { white-space: nowrap; }
+
+  .tabbar { gap: .5rem; }
+  .tabbar-actions { margin-left: 0; width: 100%; }
+
+  /* A preview of a desktop layout on a phone is not worth 460px of screen. */
+  .preview-frame.size-desktop { height: 300px; }
+  .preview-frame.size-tablet { height: 340px; }
+  .preview-frame.size-phone { height: 420px; }
+  .preview-bar { flex-wrap: wrap; }
+  .preview-url { width: 100%; }
+
+  .site-search kbd { display: none; }
+  .modal { max-height: 88vh; }
+  .console { font-size: .74rem; max-height: 40vh; }
+}
+
+@media (max-width: 520px) {
+  /* Below this the nav labels cost more than they are worth; the icons carry
+     it, and there are only four of them. */
+  .topnav a span { display: none; }
+  .topnav a { padding: .45rem .6rem; }
+  .brand-name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .seg { width: 100%; }
+  .seg button { flex: 1; }
+  .btn-row { width: 100%; }
+  .btn-row > .btn { flex: 1 1 auto; }
+
+  /* One card per row, always - the auto-fit tracks would otherwise leave a
+     sliver of a second column. */
+  .site-grid, .grid-2, .grid-3, .grid-4, .field-row { grid-template-columns: 1fr; }
+
+  .site-card-links { gap: .75rem; }
+  .stat .value { font-size: 1.25rem; }
+  .dl { grid-template-columns: 1fr; }
+  .rename-row { flex-wrap: wrap; }
+  .rename-row .btn { width: 100%; }
+}

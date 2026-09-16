@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-578-3fbf7f" alt="578 tests">
+  <img src="https://img.shields.io/badge/tests-623-3fbf7f" alt="623 tests">
 </p>
 
 ---
@@ -115,6 +115,14 @@ wrong. It must be an address the NPMplus host can reach *this* host on, so if
 NPMplus runs on the same machine it is the LAN IP, not `127.0.0.1`.
 
 **Test connection** probes in three steps and names the one that failed.
+
+**A self-signed NPMplus certificate** is handled by trusting that one
+certificate rather than by turning verification off. Settings → Reverse Proxy →
+**Trust This Certificate** fetches what NPMplus is serving, shows you its
+fingerprint to compare, and pins it: from then on the panel accepts that
+certificate and no other, with verification left on. A swapped certificate on
+the same address fails the handshake, which is the part that "accept anything"
+never gave you.
 
 Tick **Manage reverse proxy hosts automatically** and creating a site with a
 domain will, in one go: build the container, create the proxy host, request a
@@ -393,6 +401,7 @@ npm test        # everything below
 | `npm run test:alerts` | Alert thresholds, de-duplication and the wiring |
 | `npm run test:ui` | Icon names, card markup and stylesheet agreement |
 | `npm run test:ratelimit` | The limiter's buckets and keys, and the rest of the scan findings |
+| `npm run test:certpin` | Certificate pinning against a real self-signed server |
 | `npm run test:upload-live` | Real uploads and downloads against a running panel |
 
 Everything except `test:upload-live` runs with no dependencies installed and

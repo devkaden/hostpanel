@@ -201,8 +201,10 @@ const SETTING_DEFAULTS = {
   npmplus_email: '',
   npmplus_password: '',
   npmplus_le_email: '',
+  // The one NPMplus certificate this panel trusts, when it signed its own.
+  npmplus_ca_pem: '',
+  npmplus_ca_fingerprint: '',
   npmplus_enabled: '0',
-  npmplus_insecure: '0',
   host_ip: config.hostIp || '',
   panel_title: 'HostPanel',
 

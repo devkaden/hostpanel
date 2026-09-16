@@ -71,9 +71,6 @@ router.post(
     if (body.npmplus_enabled !== undefined) {
       setSetting('npmplus_enabled', body.npmplus_enabled ? '1' : '0');
     }
-    if (body.npmplus_insecure !== undefined) {
-      setSetting('npmplus_insecure', body.npmplus_insecure ? '1' : '0');
-    }
     npmplus.invalidateToken();
     audit(req, 'setup.save', 'wizard');
     res.json({ ok: true });
