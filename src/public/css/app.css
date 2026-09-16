@@ -995,4 +995,22 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
   font-weight: 600;
 }
 .settings-body { max-width: 780px; }
-.settings-save { position: sticky; bottom: 1rem; }
+
+/* A proper bar rather than a floating button.
+   Sticky is worth having on a long form, but a bare button with no background
+   sits on top of whatever scrolls under it. This gives it a surface of its own
+   and room to breathe, and it is hidden entirely on the tabs that have nothing
+   to save. */
+.settings-save {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+  margin: 1.2rem 0 0;
+  padding: .85rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.settings-save .muted { margin-right: auto; align-self: center; }

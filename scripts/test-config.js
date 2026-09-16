@@ -432,7 +432,14 @@ console.log('\nsystem packages and unreachable apps');
     ));
   check('and a proxy-added header is named as the proxy, not the site',
     /Your reverse proxy is adding it/.test(view));
-  check('with the exact rule to add', /proxy_hide_header X-Frame-Options/.test(view));
+  // proxy_hide_header only strips headers from the upstream. A header the
+  // proxy adds itself needs more_clear_headers, which is the difference
+  // between advice that works and advice that looks right.
+  check('with the rule that actually removes a proxy-added header',
+    /more_clear_headers "X-Frame-Options"/.test(view));
+  check('and names the panel origin to allow, not a wildcard',
+    /frame-ancestors 'self' &lt;%= panelOrigin %&gt;|frame-ancestors 'self' <%= panelOrigin %>/.test(view) ||
+      /panelOrigin/.test(view));
 
   check('mixed content is handled by switching to the domain',
     /location\.protocol === 'https:'/.test(view) && /PREVIEW_DOMAIN_URL/.test(view));

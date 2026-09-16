@@ -126,15 +126,25 @@
             <p>
               <strong>Your reverse proxy is adding it, not the site.</strong>
               The container itself allows framing; the header appears only once the
-              request goes through the proxy. In NPMplus, open this proxy host, go to
-              the <strong>Advanced</strong> tab, and add:
+              request passes through the proxy. In NPMplus, open this proxy host, go
+              to the <strong>Advanced</strong> tab, and add:
             </p>
-            <pre class="code-block">proxy_hide_header X-Frame-Options;
+            <pre class="code-block">more_clear_headers "X-Frame-Options";
 add_header Content-Security-Policy "frame-ancestors 'self' <%= panelOrigin %>" always;</pre>
             <p class="muted small">
-              That keeps clickjacking protection for everyone else and allows this
-              panel specifically. Removing the header altogether would work too, but
-              gives the protection up for real visitors.
+              <code>more_clear_headers</code> rather than <code>proxy_hide_header</code>:
+              the latter only strips headers coming from the site behind the proxy, and
+              this one is added by the proxy itself. NPMplus is built on OpenResty, so
+              the directive is available. If it is rejected, the proxy is plain nginx
+              without the headers-more module &mdash; use
+              <code>proxy_hide_header X-Frame-Options;</code> there instead.
+            </p>
+            <p class="muted small">
+              This keeps clickjacking protection for real visitors and allows this
+              panel specifically, which is why it is better than removing the header.
+              To do it for every site at once, put the same two lines in
+              <code>/data/nginx/custom/server_proxy.conf</code> on the NPMplus host and
+              restart it &mdash; that file is included in every proxy host.
             </p>
           <% } else { %>
             <p>

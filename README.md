@@ -219,9 +219,15 @@ tells them apart and says which:
    NPMplus, open the proxy host → Advanced:
 
    ```nginx
-   proxy_hide_header X-Frame-Options;
+   more_clear_headers "X-Frame-Options";
    add_header Content-Security-Policy "frame-ancestors 'self' https://your-panel-domain" always;
    ```
+
+   `more_clear_headers` rather than `proxy_hide_header`, because the header is
+   added by the proxy itself and `proxy_hide_header` only strips headers coming
+   from behind it. Put the same two lines in
+   `/data/nginx/custom/server_proxy.conf` on the NPMplus host to apply it to
+   every site at once.
 
 2. **Mixed content.** A panel on HTTPS cannot embed a plain-HTTP frame, and the
    browser blocks it silently. The panel switches to the site's own domain when

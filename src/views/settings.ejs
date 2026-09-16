@@ -218,7 +218,8 @@
           <div id="test-result" class="mt"></div>
         </div>
 
-        <div class="btn-row settings-save">
+        <div class="settings-save" data-settings-save>
+          <span class="muted small">Changes apply on save. Some need Apply Changes on each site.</span>
           <button class="btn btn-primary" type="submit">
             <%- icon('check') %><span>Save Settings</span>
           </button>
@@ -314,10 +315,16 @@
     var buttons = document.querySelectorAll('[data-settings-tab]');
     var sections = document.querySelectorAll('[data-settings-section]');
 
+    // The System tab is read-only, so a Save button there has nothing to do
+    // and only gets in the way.
+    var EDITABLE = ['general', 'security', 'proxy'];
+    var saveBar = document.querySelector('[data-settings-save]');
+
     function show(name) {
       sections.forEach(function (card) {
         card.style.display = card.getAttribute('data-settings-section') === name ? '' : 'none';
       });
+      if (saveBar) saveBar.style.display = EDITABLE.indexOf(name) === -1 ? 'none' : '';
       buttons.forEach(function (b) {
         b.classList.toggle('active', b.getAttribute('data-settings-tab') === name);
       });
