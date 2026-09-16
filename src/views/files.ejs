@@ -133,6 +133,10 @@
 <script src="/vendor/codemirror/mode/shell/shell.js"></script>
 <script src="/vendor/codemirror/mode/sql/sql.js"></script>
 <script src="/vendor/codemirror/mode/nginx/nginx.js"></script>
+<!-- dockerfile mode is built on defineSimpleMode, which lives in this addon.
+     Without it the mode file throws on load and takes the rest of the
+     script block with it. -->
+<script src="/vendor/codemirror/addon/mode/simple.js"></script>
 <script src="/vendor/codemirror/mode/dockerfile/dockerfile.js"></script>
 <script src="/vendor/codemirror/mode/python/python.js"></script>
 <script src="/vendor/codemirror/addon/search/search.js"></script>
@@ -164,7 +168,7 @@
     var data;
     try {
       data = await fetch('/api/sites/' + SITE_ID + '/files?path=' + encodeURIComponent(current),
-        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+        { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
     } catch (err) {
       HP.toast('Could not open that folder', 'error');
       return;
@@ -1205,7 +1209,7 @@
 
     try {
       var data = await fetch('/api/sites/' + SITE_ID + '/files/read?path=' + encodeURIComponent(path),
-        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+        { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       if (data.error) throw new Error(data.error);
 
       savedContent = data.content;

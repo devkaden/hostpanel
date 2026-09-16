@@ -333,7 +333,7 @@
     var box = document.getElementById('hosts-list');
     box.textContent = 'Loading...';
     try {
-      var data = await fetch('/api/npmplus/proxy-hosts', { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      var data = await fetch('/api/npmplus/proxy-hosts', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       if (data.error) throw new Error(data.error);
       if (!data.hosts.length) { box.textContent = 'NPMplus has no proxy hosts.'; return; }
       box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Domains</th><th>Forwards to</th><th>SSL</th></tr></thead><tbody>' +

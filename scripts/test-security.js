@@ -271,6 +271,49 @@ console.log('\ndropped-folder file handles');
     !/resolveFile/.test(view));
 }
 
+console.log('\nbrowser requests carry the session');
+{
+  // A fetch() that omits cookies reaches the panel as a brand new session, so
+  // its CSRF token cannot match and every write gets a 403 - while XHR uploads
+  // on the same page keep working, because XHR always sent cookies. Relying on
+  // the default is what allows that split-brain, so it is set explicitly.
+  const views = path.join(__dirname, '..', 'src', 'views');
+  const offenders = [];
+  const check1 = (name, src) => {
+    const re = /fetch\(/g;
+    let m;
+    while ((m = re.exec(src))) {
+      // Look ahead far enough to cover the options object on the next line.
+      const window_ = src.slice(m.index, m.index + 400);
+      const end = window_.indexOf(');');
+      const call = end > 0 ? window_.slice(0, end) : window_;
+      if (!/credentials/.test(call)) offenders.push(`${name}:${src.slice(0, m.index).split('\n').length}`);
+    }
+  };
+  for (const file of fs.readdirSync(views)) {
+    if (!file.endsWith('.ejs')) continue;
+    // Comments discuss fetch() by name; only real calls count.
+    const src = fs
+      .readFileSync(path.join(views, file), 'utf8')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    check1(file, src);
+  }
+  // app.js routes everything through one helper, so the options object is what
+  // matters there rather than each call site.
+  const appSrc = fs
+    .readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  check('the shared api() helper sends the session cookie',
+    /method: 'POST', credentials: 'same-origin'/.test(appSrc));
+  check1('app.js', appSrc.replace(/fetch\(url, opts\)/g, 'fetch(url, opts /* credentials */)'));
+  check('every fetch sends the session cookie explicitly', offenders.length === 0,
+    offenders.join(', '));
+  check('a failed API call names itself in the console',
+    /\[api\]/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8')));
+}
+
 console.log('\nin-app dialogs replace the browser ones');
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');

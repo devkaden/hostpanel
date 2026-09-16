@@ -98,7 +98,7 @@
   // Keep the status pills fresh without a full page reload.
   setInterval(async function () {
     try {
-      const data = await fetch('/api/status', { headers: { Accept: 'application/json' } }).then(r => r.json());
+      const data = await fetch('/api/status', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(r => r.json());
       (data.sites || []).forEach(function (s) {
         const card = document.querySelector('[data-site-id="' + s.id + '"]');
         if (!card) return;

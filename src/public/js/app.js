@@ -6,7 +6,15 @@
   const CSRF = meta ? meta.getAttribute('content') : '';
 
   async function api(url, options) {
-    const opts = Object.assign({ method: 'POST' }, options || {});
+    // credentials is set explicitly rather than left to the default.
+    //
+    // fetch() originally defaulted to omitting cookies, and the default only
+    // changed to same-origin later; a browser that omits them sends no session
+    // cookie, which the panel sees as a brand new session whose CSRF token
+    // cannot match - a 403 on every write, while XHR-based uploads on the same
+    // page keep working, because XHR always sent cookies. That asymmetry is
+    // very confusing to debug from the outside, and one word prevents it.
+    const opts = Object.assign({ method: 'POST', credentials: 'same-origin' }, options || {});
     opts.headers = Object.assign(
       { 'X-CSRF-Token': CSRF, Accept: 'application/json' },
       opts.headers || {}
@@ -24,6 +32,9 @@
       data = { error: text.slice(0, 300) || 'Unexpected response' };
     }
     if (!res.ok) {
+      // Named in the console, because "Failed to load resource" alone says
+      // neither which call failed nor why.
+      try { console.error('[api]', opts.method, url, res.status, data.error || ''); } catch (_) {}
       const err = new Error(data.error || `Request failed (${res.status})`);
       err.data = data;
       err.status = res.status;

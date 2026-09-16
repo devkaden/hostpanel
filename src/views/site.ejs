@@ -557,7 +557,7 @@
       portTimer = setTimeout(async function () {
         try {
           var res = await fetch('/api/ports/check?site=' + SITE_ID + '&port=' + encodeURIComponent(portField.value),
-            { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+            { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
           portFeedback.innerHTML = res.ok
             ? '<div class="field-ok">Port ' + res.port + ' is free. Apply changes to move the site onto it.</div>'
             : '<div class="field-bad">' + HP.escapeHtml(res.error) + '</div>';
@@ -616,7 +616,7 @@
   /* ------------------------------------------------------- live stats */
   setInterval(async function () {
     try {
-      var data = await fetch('/api/status?site=' + SITE_ID + '&stats=1', { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+      var data = await fetch('/api/status?site=' + SITE_ID + '&stats=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       var mine = (data.sites || [])[0];
       if (!mine) return;
       var pill = document.getElementById('state-pill');

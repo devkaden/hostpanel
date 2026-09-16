@@ -57,7 +57,7 @@
     out().textContent = 'Loading...';
     try {
       var data = await fetch('/api/sites/' + SITE_ID + '/logs?source=' + encodeURIComponent(source) + '&tail=' + tail,
-        { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+        { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       if (data.error) throw new Error(data.error);
       out().textContent = data.text || '(empty)';
       out().scrollTop = out().scrollHeight;

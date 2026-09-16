@@ -297,7 +297,7 @@
     portTimer = setTimeout(async function () {
       try {
         var res = await fetch('/api/ports/check?port=' + encodeURIComponent(portField.value),
-          { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
+          { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
         feedback.innerHTML = res.ok
           ? '<div class="field-ok">Port ' + res.port + ' is free.</div>'
           : '<div class="field-bad">' + HP.escapeHtml(res.error) + '</div>';
@@ -307,7 +307,7 @@
 
   document.getElementById('suggest-port').addEventListener('click', async function () {
     try {
-      var res = await fetch('/api/ports/suggest', { headers: { Accept: 'application/json' } })
+      var res = await fetch('/api/ports/suggest', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
         .then(function (r) { return r.json(); });
       if (res.port) {
         portField.value = res.port;
