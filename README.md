@@ -144,9 +144,23 @@ Host ports are allocated from 21000–21999. The panel keeps state in
 | WordPress | `wordpress:php8.3-apache` + `mariadb:11` | DB credentials generated; HTTPS-behind-proxy handled in `WORDPRESS_CONFIG_EXTRA` |
 | Node.js | `node:24/22/20-bookworm-slim` | Your install and start commands; `PORT` injected |
 
-Node dependency installs run in a throwaway container sharing the same `/app`
-mount, so an app that crashes on start can still have its dependencies
-installed.
+**Node dependencies install themselves.** Uploading a project without
+`node_modules` is the normal way to deploy, not a mistake, so starting or
+restarting a Node site with a `package.json` and no `node_modules` runs the
+install first and then starts. Without that the site is a dead end: the
+container exits immediately with `Cannot find module`, and a shell cannot be
+opened into a container that is not running — the one moment a shell is most
+needed is the one moment the usual route cannot provide it.
+
+The install runs in a throwaway container sharing the same `/app` mount, so an
+app that crashes on start can still have its dependencies installed. A failing
+install is reported as a failure rather than quietly followed by a start that
+cannot work.
+
+**The shell works when the site is down.** If the container is stopped or
+exited, the panel opens a temporary container with the same files mounted and
+gives you a shell there. Changes are kept, because it is the same directory;
+the site itself stays stopped until you start it.
 
 ---
 

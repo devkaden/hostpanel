@@ -208,6 +208,44 @@ async function runOneShot(image, cmd, { binds = [], workdir, env, network, onPro
 }
 
 /**
+ * Starts a throwaway container with a terminal attached.
+ *
+ * For getting a shell when the site's own container will not stay up. A Node
+ * app with no dependencies installed exits the moment it starts, and exec needs
+ * a running container - so the one moment a shell is most needed is the one
+ * moment the normal route cannot provide it. This mounts the same files into a
+ * fresh container that just runs a shell, which cannot exit on its own.
+ */
+async function runInteractive(image, cmd, { binds = [], workdir, env, onProgress } = {}) {
+  await ensureImage(image, onProgress);
+  const container = await client().createContainer({
+    Image: image,
+    Cmd: cmd,
+    WorkingDir: workdir || undefined,
+    Env: env || undefined,
+    Tty: true,
+    OpenStdin: true,
+    StdinOnce: false,
+    Labels: { 'hostpanel.managed': 'true', 'hostpanel.role': 'rescue' },
+    HostConfig: {
+      Binds: binds,
+      AutoRemove: false,
+      NetworkMode: 'bridge',
+    },
+  });
+
+  const stream = await container.attach({
+    stream: true,
+    stdin: true,
+    stdout: true,
+    stderr: true,
+    hijack: true,
+  });
+  await container.start();
+  return { container, stream };
+}
+
+/**
  * Docker multiplexes stdout/stderr with an 8-byte header per frame when the
  * container has no TTY. Strip those headers so the text is readable.
  */
@@ -323,6 +361,7 @@ module.exports = {
   logStream,
   exec,
   execInteractive,
+  runInteractive,
   runOneShot,
   demuxToString,
   stats,

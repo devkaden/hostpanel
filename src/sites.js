@@ -545,8 +545,39 @@ async function waitForDatabase(dbContainer, log, attempts = 40) {
 /* ------------------------------------------------------------------ *
  * Lifecycle actions
  * ------------------------------------------------------------------ */
+/**
+ * True when a Node site has a package.json but no installed dependencies.
+ *
+ * This is the state every Node deploy passes through, and on its own it is a
+ * dead end: the container exits immediately with "Cannot find module ...", and
+ * because the shell attaches to a running container, there is nowhere to go and
+ * run the install from. The panel has to notice and handle it.
+ */
+function needsDependencies(site) {
+  if (site.type !== 'node') return false;
+  const dirs = siteDirs(site);
+  if (!fs.existsSync(path.join(dirs.app, 'package.json'))) return false;
+  return !fs.existsSync(path.join(dirs.app, 'node_modules'));
+}
+
 async function startSite(site) {
   if (site.db_container_id) await docker.startContainer(tpl.dbContainerName(site)).catch(() => {});
+
+  // Install first if the dependencies are missing, rather than starting a
+  // container that is certain to exit. Doing it automatically is the whole
+  // point: uploading a project without node_modules is the normal way to
+  // deploy, not a mistake to be reported back to the user.
+  if (needsDependencies(site)) {
+    pushProgress(site.id, 'No node_modules found - installing dependencies first');
+    await runInstall(site, { restart: false }).catch((err) => {
+      pushProgress(site.id, `Install failed: ${err.message}`);
+      throw new Error(
+        `Dependencies could not be installed: ${err.message}. ` +
+        'The site was not started because it would exit immediately.'
+      );
+    });
+  }
+
   await docker.startContainer(tpl.containerName(site));
   setStatus(site.id, 'running');
 }
@@ -558,6 +589,10 @@ async function stopSite(site) {
 }
 
 async function restartSite(site) {
+  if (needsDependencies(site)) {
+    pushProgress(site.id, 'No node_modules found - installing dependencies first');
+    await runInstall(site, { restart: false });
+  }
   await docker.restartContainer(tpl.containerName(site));
   setStatus(site.id, 'running');
 }
@@ -610,7 +645,8 @@ async function rebuildSite(siteId) {
   }
 }
 
-async function runInstall(site) {
+async function runInstall(site, opts) {
+  const restart = !opts || opts.restart !== false;
   if (site.type !== 'node') throw new Error('Install commands only apply to Node.js sites');
   const cmd = site.install_command || 'npm install --omit=dev';
   const dirs = siteDirs(site);
@@ -632,10 +668,16 @@ async function runInstall(site) {
     const owner = ownerUid('node');
     await chownRecursive(dirs.app, owner.uid, owner.gid);
 
-    pushProgress(site.id, 'Restarting the site');
-    await docker.restartContainer(tpl.containerName(site)).catch((err) =>
-      pushProgress(site.id, `Could not restart: ${err.message}`)
-    );
+    if (res.exitCode !== 0) {
+      throw new Error(`the install command exited with code ${res.exitCode}`);
+    }
+
+    if (restart) {
+      pushProgress(site.id, 'Restarting the site');
+      await docker.restartContainer(tpl.containerName(site)).catch((err) =>
+        pushProgress(site.id, `Could not restart: ${err.message}`)
+      );
+    }
     return res;
   } catch (err) {
     pushProgress(site.id, `ERROR: ${err.message}`);
@@ -683,7 +725,10 @@ async function statusFor(site) {
   if (site.type === 'wordpress') {
     dbState = await docker.containerState(tpl.dbContainerName(site));
   }
-  return { state, dbState };
+  // Surfaced so the UI can explain an exited Node container rather than just
+  // reporting it as stopped: missing dependencies is by far the most common
+  // reason, and it is fixable in one click.
+  return { state, dbState, needsDependencies: needsDependencies(site) };
 }
 
 async function diskUsage(site) {
@@ -734,6 +779,7 @@ module.exports = {
   provisionSite,
   rebuildSite,
   runInstall,
+  needsDependencies,
   startSite,
   stopSite,
   restartSite,

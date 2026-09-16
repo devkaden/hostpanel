@@ -119,16 +119,40 @@ async function handleConnection(ws, req, query) {
 
   const state = await docker.containerState(containerName);
   if (state === 'missing') throw new Error('The container does not exist yet. Provision the site first.');
-  if (state !== 'running') throw new Error(`The container is ${state}. Start the site first.`);
 
   audit(req, 'terminal.open', site.name, containerName);
-  say(`\x1b[2m--- connected to ${containerName} ---\x1b[0m\r\n`);
 
-  const { exec, stream } = await docker.execInteractive(containerName, [
-    '/bin/sh',
-    '-c',
-    `cd ${workdirFor(site)} 2>/dev/null; ${PICK_SHELL}`,
-  ]);
+  let exec = null;
+  let stream = null;
+  let rescue = null;
+
+  if (state === 'running') {
+    say(`\x1b[2m--- connected to ${containerName} ---\x1b[0m\r\n`);
+    ({ exec, stream } = await docker.execInteractive(containerName, [
+      '/bin/sh',
+      '-c',
+      `cd ${workdirFor(site)} 2>/dev/null; ${PICK_SHELL}`,
+    ]));
+  } else {
+    // The container is down, which used to end the session: exec needs a
+    // running container, so the one moment a shell is most wanted - an app
+    // that will not stay up - was the one moment there was no way in. A
+    // throwaway container with the same files mounted gives a shell that
+    // cannot exit on its own, and is where "npm install" belongs anyway.
+    const dirs = sites.siteDirs(site);
+    const spec = tpl.buildSpec(site, dirs);
+    const workdir = workdirFor(site);
+
+    say(`\x1b[2m--- ${containerName} is ${state}; opened a temporary shell on the same files ---\x1b[0m\r\n`);
+    say('\x1b[2m--- changes here are kept; the site itself is still stopped ---\x1b[0m\r\n');
+
+    rescue = await docker.runInteractive(
+      spec.image,
+      ['/bin/sh', '-c', `cd ${workdir} 2>/dev/null; ${PICK_SHELL}`],
+      { binds: [`${dirs.app}:${workdir}`], workdir, env: (spec.create || {}).Env }
+    );
+    stream = rescue.stream;
+  }
 
   let closed = false;
   const shutdown = () => {
@@ -138,6 +162,10 @@ async function handleConnection(ws, req, query) {
       stream.end();
     } catch (_) {
       /* ignore */
+    }
+    if (rescue) {
+      // Nothing else will reap it: the shell was the only process in it.
+      rescue.container.remove({ force: true }).catch(() => {});
     }
     try {
       ws.close();
@@ -164,9 +192,9 @@ async function handleConnection(ws, req, query) {
         msg = null;
       }
       if (msg && msg.type === 'resize') {
-        exec
-          .resize({ h: Math.max(4, msg.rows | 0), w: Math.max(10, msg.cols | 0) })
-          .catch(() => {});
+        const size = { h: Math.max(4, msg.rows | 0), w: Math.max(10, msg.cols | 0) };
+        const target = exec || (rescue && rescue.container);
+        if (target) target.resize(size).catch(() => {});
         return;
       }
       if (msg && msg.type === 'ping') return;

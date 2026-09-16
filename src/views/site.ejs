@@ -23,12 +23,22 @@
       <button class="btn" data-action="restart">Restart</button>
       <button class="btn" data-action="rebuild" title="Recreate the container from the current settings. Your files are kept.">Apply changes</button>
       <% if (site.type === 'node') { %>
-        <button class="btn adv" data-action="install" title="Re-run the install command inside the container">Reinstall dependencies</button>
+        <button class="btn" data-action="install" title="Run the install command against this site's files">Install dependencies</button>
       <% } %>
     </div>
   </div>
 
   <%- include('partials/site-tabs') %>
+
+  <% if (live.needsDependencies && !provisioning && !busy) { %>
+    <div class="alert alert-error" id="deps-alert">
+      <strong>Dependencies are not installed.</strong>
+      This site has a <code>package.json</code> but no <code>node_modules</code>, so it exits
+      on start with <code>Cannot find module</code>. Press
+      <button class="btn btn-sm btn-primary" data-action="install">Install dependencies</button>
+      and the site will start on its own once that finishes.
+    </div>
+  <% } %>
 
   <% if (live.state === 'missing' && !provisioning && !busy) { %>
     <div class="alert alert-error" id="missing-alert">

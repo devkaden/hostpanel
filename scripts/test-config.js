@@ -329,6 +329,35 @@ const tpl = require(path.join(APP, 'site-templates.js'));
   }
 
   fs.rmSync(TMP, { recursive: true, force: true });
-  console.log(`\n${pass} passed, ${fail} failed\n`);
+  console.log('\nnode sites install their dependencies before starting');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'sites.js'), 'utf8');
+  // A Node app with a package.json and no node_modules exits instantly with
+  // "Cannot find module", and exec needs a running container - so the shell is
+  // unavailable at exactly the moment it is needed. Starting has to handle it.
+  check('the missing-dependency state is detected',
+    /function needsDependencies/.test(src));
+  check('starting installs first rather than starting a doomed container',
+    /startSite[\s\S]{0,600}needsDependencies\(site\)[\s\S]{0,400}runInstall/.test(src));
+  check('restarting does too', /restartSite[\s\S]{0,300}needsDependencies/.test(src));
+  check('a failing install is not reported as success',
+    /the install command exited with code/.test(src));
+  check('the status carries the flag so the page can explain it',
+    /needsDependencies: needsDependencies\(site\)/.test(src));
+
+  const term = fs.readFileSync(path.join(__dirname, '..', 'src', 'terminal.js'), 'utf8');
+  check('a shell still opens when the container is down',
+    /runInteractive/.test(term) && !/The container is \$\{state\}\. Start the site first/.test(term));
+  check('and the throwaway container is removed afterwards',
+    /rescue\.container\.remove/.test(term));
+
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'site.ejs'), 'utf8');
+  check('the install button is not hidden behind advanced mode',
+    !/btn adv" data-action="install"/.test(view));
+  check('and a missing-dependency site says so plainly',
+    /Dependencies are not installed/.test(view));
+}
+
+console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

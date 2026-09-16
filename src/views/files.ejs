@@ -62,7 +62,6 @@
   <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
   <p class="muted small mt">
     Up to <%= maxUploadMb %> MB per file. Files land in the folder you are viewing.
-    <button class="btn btn-sm btn-ghost" id="upload-diag">Test uploads</button>
     <button class="btn btn-sm btn-ghost" id="copy-cmd">Copy from your computer</button>
   </p>
 </div>
@@ -1198,64 +1197,6 @@
     }
     load(current);
   }
-
-  /**
-   * Uploads data this page made up, to answer one question: can this browser
-   * send a body to this panel at all?
-   *
-   * It touches no file on disk, so it separates the two failures that look
-   * identical from the outside. If this passes and real uploads hang, the
-   * transport is fine and the browser is failing to read your files. If this
-   * hangs too, no file was ever the problem - it is the connection between
-   * this browser and the panel, and the numbers below say where it stops.
-   */
-  async function runUploadDiagnostic() {
-    var sizes = [1, 64 * 1024, 2 * 1024 * 1024];
-    var results = [];
-    var names = [];
-
-    for (var i = 0; i < sizes.length; i += 1) {
-      var size = sizes[i];
-      var name = '__browsertest-' + size + '.bin';
-      names.push(name);
-
-      // Built in memory. Nothing here can be evicted to iCloud or go stale.
-      var blob = new Blob([new Uint8Array(size)], { type: 'application/octet-stream' });
-      var began = Date.now();
-      try {
-        await putFile({ path: name }, blob, function () {});
-        results.push(HP.bytes(size) + ' - ok in ' + (Date.now() - began) + 'ms');
-      } catch (err) {
-        results.push(HP.bytes(size) + ' - FAILED after ' + (Date.now() - began) + 'ms: ' + err.message);
-      }
-    }
-
-    // Clean up whatever landed, quietly.
-    try {
-      await api('/delete', { body: { paths: names.map(function (n) {
-        return current ? current + '/' + n : n;
-      }) } });
-    } catch (_) { /* leaving a test file behind is not worth an error */ }
-
-    var allOk = results.every(function (r) { return r.indexOf('ok') !== -1; });
-    await HP.alert({
-      title: allOk ? 'This browser can upload fine' : 'This browser cannot upload',
-      message: allOk
-        ? 'Data generated in the page reached the server. If dragging real files ' +
-          'still hangs, the browser is failing to read them from disk rather than ' +
-          'failing to send them - which points at files stored in iCloud, OneDrive ' +
-          'or Dropbox that are not downloaded locally.'
-        : 'Data generated in the page could not be sent, so no file on disk was ever ' +
-          'the problem. Something between this browser and the panel is dropping the ' +
-          'request body - a reverse proxy in front of the panel is the usual cause.',
-      list: results,
-      tone: allOk ? 'ok' : 'danger'
-    });
-    load(current);
-  }
-
-  var diagBtn = document.getElementById('upload-diag');
-  if (diagBtn) diagBtn.addEventListener('click', runUploadDiagnostic);
 
   /**
    * Shows an rsync command that copies a folder straight into this site.
