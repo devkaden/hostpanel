@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-634-3fbf7f" alt="634 tests">
+  <img src="https://img.shields.io/badge/tests-642-3fbf7f" alt="642 tests">
 </p>
 
 ---
@@ -148,8 +148,9 @@ later, as "the domain stopped working".
   the certificate but keeps it, so it can go back on without issuing a new one.
 
 Anything hand-written in a host's advanced config is kept: the panel only ever
-rewrites its own marked block. A proxy host the panel did not create is never
-repointed without being told to take it over.
+rewrites its own marked block, and custom locations are passed back exactly as
+NPMplus gave them. A proxy host the panel did not create is never repointed
+without being told to take it over.
 
 **Let other pages embed this site in a frame** (per site) clears the
 `X-Frame-Options` header NPMplus adds. The panel's own preview does not need

@@ -48,6 +48,13 @@ const ALLOWED_CERT_META = new Set([
   'dns_provider_credentials', 'dns_provider', 'letsencrypt_certificate', 'propagation_seconds',
 ]);
 const certPayloads = [];
+
+// What a custom location must and may carry, as NPMplus 2.15.x validates it.
+const REQUIRED_LOCATION_FIELDS = ['path', 'npmplus_access_list_ids', 'npmplus_access_list_type'];
+const ALLOWED_LOCATION_FIELDS = new Set([
+  'path', 'advanced_config', 'forward_scheme', 'forward_host', 'forward_port',
+  'npmplus_access_list_ids', 'npmplus_access_list_type',
+]);
 const proxyWrites = [];
 
 // Exactly the fields NPMplus 2.15.x permits on a proxy host.
@@ -137,6 +144,33 @@ const server = http.createServer((req, res) => {
         const extra = Object.keys(payload).filter((k) => !ALLOWED_PROXY_FIELDS.has(k));
         if (extra.length) {
           return json(400, { error: { code: 400, message: 'data must NOT have additional properties' } });
+        }
+
+        /*
+         * Locations are validated in their own right, and NPMplus requires two
+         * properties classic NPM has never heard of. Sending a location
+         * without them is a real rejection somebody hit while adding a domain:
+         *
+         *   data/locations/0 must have required property
+         *   'npmplus_access_list_ids'
+         */
+        for (const [i, loc] of (payload.locations || []).entries()) {
+          for (const required of REQUIRED_LOCATION_FIELDS) {
+            if (!(required in loc)) {
+              return json(400, {
+                error: {
+                  code: 400,
+                  message: `data/locations/${i} must have required property '${required}'`,
+                },
+              });
+            }
+          }
+          const locExtra = Object.keys(loc).filter((k) => !ALLOWED_LOCATION_FIELDS.has(k));
+          if (locExtra.length) {
+            return json(400, {
+              error: { code: 400, message: `data/locations/${i} must NOT have additional properties` },
+            });
+          }
         }
         proxyWrites.push({ method: req.method, id: one ? Number(one[1]) : null, payload });
         // An update is remembered, so a later read shows what the client set.
@@ -304,6 +338,80 @@ server.listen(0, '127.0.0.1', async () => {
       check('a second check comes back clean', after.ok, JSON.stringify(after.issues));
       check('and a repair then changes nothing',
         (await npmplus.repairProxy({ ...drifted, allow_framing: 0 })).fixed.length === 0);
+    }
+
+    console.log('\na proxy host with a custom location on it');
+    {
+      /*
+       * The shape NPMplus actually returns: a location with its own id and
+       * timestamps, and the two npmplus_* fields its schema insists on.
+       * Rebuilding these from a list of known fields dropped the required ones
+       * and every update failed with "must have required property
+       * 'npmplus_access_list_ids'" - while adding a domain, which has nothing
+       * to do with locations.
+       */
+      existingHosts = [{
+        id: 27, domain_names: ['app.example.com'], forward_scheme: 'http',
+        forward_host: '192.168.1.50', forward_port: 21000, enabled: 1, certificate_id: 0,
+        allow_websocket_upgrade: true, advanced_config: '',
+        locations: [{
+          id: 4,
+          proxy_host_id: 27,
+          created_on: '2026-01-01T00:00:00.000Z',
+          modified_on: '2026-01-02T00:00:00.000Z',
+          path: '/api',
+          advanced_config: 'proxy_read_timeout 300;',
+          forward_scheme: 'http',
+          forward_host: '10.0.0.5',
+          forward_port: 9000,
+          npmplus_access_list_ids: [],
+          npmplus_access_list_type: 'allow',
+        }],
+      }];
+      const withLocation = { ...site, npm_proxy_id: 27, domain: 'app.example.com',
+        extra_domains: 'www.example.com' };
+
+      proxyWrites.length = 0;
+      let failure = null;
+      try {
+        await npmplus.syncProxyHost(withLocation, { requestSsl: false });
+      } catch (err) { failure = err; }
+
+      check('a domain can be set on a site whose proxy host has a location',
+        failure === null, failure && failure.message);
+
+      const sent = proxyWrites.filter((w) => w.method === 'PUT').pop();
+      const loc = sent && sent.payload.locations && sent.payload.locations[0];
+      check('the location survives the update', Boolean(loc), JSON.stringify(sent && sent.payload));
+      check('the fields NPMplus requires are still on it',
+        loc && Array.isArray(loc.npmplus_access_list_ids) && loc.npmplus_access_list_type === 'allow',
+        JSON.stringify(loc));
+      check('so is what the user configured',
+        loc && loc.path === '/api' && /proxy_read_timeout/.test(loc.advanced_config),
+        JSON.stringify(loc));
+      check('and the record keys it will not accept back are gone',
+        loc && !('id' in loc) && !('created_on' in loc) && !('proxy_host_id' in loc),
+        Object.keys(loc || {}).join(', '));
+
+      // And a location shape this code has never seen still must not block an
+      // update to everything else.
+      existingHosts[0].locations = [{ path: '/odd', something_new: true }];
+      proxyWrites.length = 0;
+      failure = null;
+      try {
+        await npmplus.syncProxyHost(withLocation, { requestSsl: false });
+      } catch (err) { failure = err; }
+      check('a location NPMplus refuses does not block the rest of the update',
+        failure === null, failure && failure.message);
+      const retried = proxyWrites.filter((w) => w.method === 'PUT').pop();
+      check('it retries without touching the locations at all',
+        retried && !('locations' in retried.payload),
+        JSON.stringify(retried && Object.keys(retried.payload)));
+      check('and the rest of the update still went through',
+        retried && retried.payload.forward_port === 21000);
+
+      existingHosts = DEFAULT_HOSTS;
+      proxyWrites.length = 0;
     }
 
     console.log('\nframing, and the config the user wrote themselves');

@@ -425,22 +425,48 @@ function advancedConfigFor(site, existingAdvanced) {
   return theirs ? `${theirs}\n\n${FRAMING_BLOCK}` : FRAMING_BLOCK;
 }
 
+/*
+ * Fields a proxy host's custom locations carry on the way out but will not
+ * accept on the way back in - the record's own identity and timestamps.
+ */
+const LOCATION_READ_ONLY = new Set([
+  'id',
+  'proxy_host_id',
+  'created_on',
+  'modified_on',
+  'owner_user_id',
+  'is_deleted',
+]);
+
 /**
  * Custom locations, carried across a sync.
  *
- * Reduced to the fields the create/update schema accepts: a host read back
- * from the API carries extra keys, and sending one of those back rejects the
- * whole request with "must NOT have additional properties".
+ * Everything the API gave back is sent back, minus the read-only keys above.
+ *
+ * The first version listed the five fields it knew about instead, which is the
+ * same shape of mistake twice over. Sending an unexpected key is rejected with
+ * "must NOT have additional properties" - but so is *omitting* a required one,
+ * and NPMplus requires two that classic NPM does not:
+ *
+ *   data/locations/0 must have required property 'npmplus_access_list_ids'
+ *
+ * which is what someone saw when they added a domain to a site whose proxy
+ * host had a custom location on it. A list of known fields has to be right
+ * about a schema this code does not own, and is wrong the moment that schema
+ * gains a field. Passing through what was read is right by construction: these
+ * values came from NPMplus, and nothing here wants to change them.
  */
 function keepLocations(locations) {
   if (!Array.isArray(locations)) return [];
-  return locations.map((l) => ({
-    path: l.path,
-    advanced_config: l.advanced_config || '',
-    forward_scheme: l.forward_scheme,
-    forward_host: l.forward_host,
-    forward_port: l.forward_port,
-  }));
+  return locations
+    .filter((l) => l && typeof l === 'object')
+    .map((l) => {
+      const out = {};
+      for (const [key, value] of Object.entries(l)) {
+        if (!LOCATION_READ_ONLY.has(key)) out[key] = value;
+      }
+      return out;
+    });
 }
 
 function proxyPayload(site, domains, certificateId, existingHost) {
@@ -473,6 +499,37 @@ function proxyPayload(site, domains, certificateId, existingHost) {
     locations: keepLocations(existingHost && existingHost.locations),
     meta: { letsencrypt_agree: false, dns_challenge: false },
   };
+}
+
+
+/**
+ * Updates a proxy host, and survives a schema the panel does not own.
+ *
+ * Custom locations are carried across untouched, but NPMplus validates them
+ * strictly and its requirements differ from classic NPM's. If an update is
+ * rejected over the locations specifically, they are dropped from the payload
+ * and it is sent again: leaving them out of a PUT leaves them as they are,
+ * which is the right outcome anyway - this code never wants to change them,
+ * only to avoid deleting them.
+ *
+ * The alternative, failing the whole update, means a custom location on one
+ * proxy host stops a domain from being set on the site it belongs to, which is
+ * a poor trade for a field nobody here is trying to edit.
+ */
+async function putProxyHost(proxyId, payload) {
+  try {
+    return await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, payload);
+  } catch (err) {
+    const aboutLocations = /data\/locations/.test(err.message || '');
+    if (!aboutLocations || !('locations' in payload)) throw err;
+
+    console.warn(
+      `[npmplus] proxy host #${proxyId}: NPMplus rejected the custom locations ` +
+        `(${err.message}). Updating everything else and leaving them untouched.`
+    );
+    const { locations, ...rest } = payload;
+    return api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, rest);
+  }
 }
 
 async function listProxyHosts() {
@@ -598,11 +655,7 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
       current = null;
     }
     try {
-      await api(
-        'PUT',
-        `/api/nginx/proxy-hosts/${proxyId}`,
-        proxyPayload(site, domains, site.npm_cert_id, current)
-      );
+      await putProxyHost(proxyId, proxyPayload(site, domains, site.npm_cert_id, current));
     } catch (err) {
       if (err.statusCode === 404) {
         proxyId = null;
@@ -623,11 +676,7 @@ async function syncProxyHost(site, { requestSsl = true, adopt = false } = {}) {
   if (requestSsl) {
     try {
       if (!certId) certId = await requestCertificate(domains);
-      await api(
-        'PUT',
-        `/api/nginx/proxy-hosts/${proxyId}`,
-        proxyPayload(site, domains, certId, current)
-      );
+      await putProxyHost(proxyId, proxyPayload(site, domains, certId, current));
       ssl = true;
     } catch (err) {
       // The site still works over HTTP; surface the reason to the caller.
@@ -783,11 +832,7 @@ async function repairProxy(site, { adopt = false, requestSsl = false } = {}) {
     // The certificate goes back on only if HTTPS is meant to be on. A site
     // switched to plain HTTP keeps its certificate id so it can be turned back
     // on without issuing a new one, and a repair must not quietly undo that.
-    await api(
-      'PUT',
-      `/api/nginx/proxy-hosts/${proxyId}`,
-      proxyPayload(site, domains, site.ssl ? site.npm_cert_id : 0, host)
-    );
+    await putProxyHost(proxyId, proxyPayload(site, domains, site.ssl ? site.npm_cert_id : 0, host));
     for (const issue of issues) {
       if (issue.code === 'disabled') continue; // handled by its own endpoint below
       fixed.push(REPAIR_SAYS[issue.code] ? REPAIR_SAYS[issue.code](site, domains) : issue.says);
@@ -805,7 +850,7 @@ async function repairProxy(site, { adopt = false, requestSsl = false } = {}) {
   let ssl = Boolean(site.ssl);
   if (requestSsl && !certId) {
     certId = await requestCertificate(domains);
-    await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, certId, host));
+    await putProxyHost(proxyId, proxyPayload(site, domains, certId, host));
     ssl = true;
     fixed.push('Requested a certificate and turned on HTTPS.');
   }
@@ -833,13 +878,13 @@ async function setSsl(site, enabled) {
   }
 
   if (!enabled) {
-    await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, 0, host));
+    await putProxyHost(proxyId, proxyPayload(site, domains, 0, host));
     return { proxyId, certId: site.npm_cert_id || null, ssl: false };
   }
 
   let certId = site.npm_cert_id || null;
   if (!certId) certId = await requestCertificate(domains);
-  await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, certId, host));
+  await putProxyHost(proxyId, proxyPayload(site, domains, certId, host));
   return { proxyId, certId, ssl: true };
 }
 
@@ -893,6 +938,8 @@ function invalidateToken() {
 
 module.exports = {
   isEnabled,
+  keepLocations,
+  putProxyHost,
   isConfigured,
   testConnection,
   getSession,
