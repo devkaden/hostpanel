@@ -30,8 +30,8 @@
 
   <%- include('partials/site-tabs') %>
 
-  <% if (live.state === 'missing') { %>
-    <div class="alert alert-error">
+  <% if (live.state === 'missing' && !provisioning && !busy) { %>
+    <div class="alert alert-error" id="missing-alert">
       <strong>This site has no container yet.</strong> That usually means the build failed or it was removed
       outside the panel. Press <strong>Apply changes</strong> above to build it again &mdash; your files are untouched.
     </div>
@@ -620,6 +620,10 @@
       var pill = document.getElementById('state-pill');
       pill.className = 'pill pill-' + mine.state;
       pill.innerHTML = '<span class="dot"></span>' + mine.state;
+
+      // The warning is only true while the container really is absent.
+      var missing = document.getElementById('missing-alert');
+      if (missing && mine.state !== 'missing') missing.remove();
       if (mine.stats) {
         document.getElementById('stat-cpu').textContent = mine.stats.cpuPercent + ' %';
         document.getElementById('stat-mem').textContent = Math.round(mine.stats.memoryBytes / 1048576) + ' MB';

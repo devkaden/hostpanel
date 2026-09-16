@@ -254,7 +254,32 @@
     var phpSel = document.getElementById('php_version');
     if (nodeSel) nodeSel.name = (type === 'node') ? 'runtime_version' : 'node_runtime_version';
     if (phpSel) phpSel.name = (type === 'php' || type === 'wordpress') ? 'runtime_version' : 'php_runtime_version';
+    hideEmptyCards();
   }
+
+  /**
+   * A static site in Simple mode has nothing to show under "How it runs" -
+   * every field there is either type-specific or advanced. An empty card with
+   * a heading looks broken, so hide any card with no visible fields left.
+   */
+  function hideEmptyCards() {
+    document.querySelectorAll('form .card').forEach(function (card) {
+      var visible = Array.prototype.slice.call(card.querySelectorAll('.field, .check, .field-row'))
+        .some(function (f) {
+          if (f.closest('.field-row') && !f.classList.contains('field-row')) return false;
+          if (f.style.display === 'none') return false;
+          // In Simple mode the stylesheet hides .adv entirely.
+          return !(f.classList.contains('adv') && document.body.classList.contains('mode-simple'));
+        });
+      var hasProse = card.querySelector('.alert, ol, p:not(.muted)');
+      card.style.display = visible || hasProse ? '' : 'none';
+    });
+  }
+
+  // Switching between Simple and Advanced changes what is left on the page.
+  document.querySelectorAll('[data-mode-set]').forEach(function (b) {
+    b.addEventListener('click', function () { setTimeout(hideEmptyCards, 0); });
+  });
 
   document.getElementById('name').addEventListener('input', function (e) {
     e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');

@@ -144,6 +144,52 @@ console.log('\nzip extraction containment');
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+/* ------------------------------------------ 5. upload path safety -------- */
+console.log('\nnested upload paths (dropped folders)');
+{
+  // Mirrors the per-segment validation in saveUploadNested().
+  function segmentsOk(relativePath) {
+    const segments = String(relativePath || '')
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter((seg) => seg && seg !== '.');
+    if (!segments.length) return false;
+    for (const seg of segments) {
+      if (seg === '..') return false;
+      if (seg === '.') return false;
+      if (/[\/\\\0]/.test(seg)) return false;
+      if (seg.length > 255) return false;
+    }
+    return true;
+  }
+
+  check('accepts a normal nested path', segmentsOk('assets/css/app.css'));
+  check('accepts a bare file name', segmentsOk('index.html'));
+  check('rejects a traversal segment', !segmentsOk('../../etc/passwd'));
+  check('rejects a traversal in the middle', !segmentsOk('assets/../../../etc/passwd'));
+  check('rejects a backslash traversal', !segmentsOk('..\\..\\etc\\passwd'));
+  check('rejects an empty path', !segmentsOk(''));
+  check('rejects a path of only dots', !segmentsOk('./././'));
+}
+
+console.log('\nmoving files inside a site');
+{
+  // Mirrors the containment rules in filemanager.move().
+  function moveAllowed(sourceRel, destRel) {
+    if (sourceRel === '') return false;              // never move the root
+    if (destRel === sourceRel) return false;         // into itself
+    if (destRel.startsWith(sourceRel + '/')) return false; // into its own child
+    return true;
+  }
+
+  check('allows a normal move', moveAllowed('app/index.html', 'app/pages'));
+  check('allows moving up a level', moveAllowed('app/pages/a.html', 'app'));
+  check('refuses to move the site root', !moveAllowed('', 'app'));
+  check('refuses to move a folder into itself', !moveAllowed('app', 'app'));
+  check('refuses to move a folder into its own child', !moveAllowed('app', 'app/pages'));
+  check('allows a sibling with a shared prefix', moveAllowed('app', 'application'));
+}
+
 /* --------------------------------------------- 5. security headers set --- */
 console.log('\nsecurity headers declared in src/index.js');
 {

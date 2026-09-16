@@ -1,15 +1,19 @@
 <%- include('partials/head') %>
+<link rel="stylesheet" href="/vendor/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="/vendor/codemirror/theme/material-darker.css">
 <%- include('partials/nav') %>
+
 <div class="wrap">
   <div class="page-head">
     <div>
       <h1><%= site.name %> &middot; files</h1>
-      <p class="sub"><code class="inline"><%= dirs.root %></code></p>
+      <p class="sub">Drag files or folders anywhere on this page to upload them. Drag rows onto a folder to move them.</p>
     </div>
     <div class="page-actions">
-      <button class="btn" onclick="HP.openModal('mkdir-modal')">New folder</button>
-      <button class="btn" onclick="HP.openModal('newfile-modal')">New file</button>
-      <button class="btn" id="upload-btn">Upload</button>
+      <button class="btn" id="new-folder-btn">New folder</button>
+      <button class="btn" id="new-file-btn">New file</button>
+      <button class="btn btn-primary" id="upload-btn">Upload files</button>
+      <button class="btn" id="upload-folder-btn">Upload folder</button>
       <a class="btn" href="/sites/<%= site.id %>">Back to site</a>
     </div>
   </div>
@@ -18,22 +22,28 @@
 
   <div class="crumbs" id="crumbs"></div>
 
-  <div class="dropzone" id="dropzone">
-    Drop files here to upload into <strong id="dz-path">this folder</strong>, or click to choose (max <%= maxUploadMb %> MB per file)
-    <input type="file" id="file-input" multiple style="display:none">
+  <div class="fm-toolbar">
+    <div class="fm-search-wrap">
+      <input type="text" id="filter" placeholder="Filter this folder" autocomplete="off">
+    </div>
+    <span class="muted small" id="folder-summary"></span>
+    <div class="spacer"></div>
+    <span class="muted small" id="selection-count"></span>
+    <button class="btn btn-sm" id="bulk-download" style="display:none">Download selected</button>
+    <button class="btn btn-sm btn-danger" id="bulk-delete" style="display:none">Delete selected</button>
   </div>
 
-  <div class="card" style="margin-top:1rem;padding:0;overflow:hidden">
+  <div class="card" style="padding:0;overflow:hidden">
     <div class="table-wrap">
-      <table>
+      <table class="fm-table">
         <thead>
           <tr>
-            <th style="width:36px"><input type="checkbox" id="check-all" style="width:auto"></th>
-            <th>Name</th>
-            <th style="width:110px">Size</th>
-            <th style="width:150px">Modified</th>
-            <th style="width:80px">Mode</th>
-            <th style="width:230px" class="right">Actions</th>
+            <th style="width:34px"><input type="checkbox" id="check-all" style="width:auto" aria-label="Select all"></th>
+            <th class="sortable" data-sort="name">Name <span class="arrow" data-arrow="name"></span></th>
+            <th class="sortable" style="width:110px" data-sort="size">Size <span class="arrow" data-arrow="size"></span></th>
+            <th class="sortable" style="width:150px" data-sort="mtime">Modified <span class="arrow" data-arrow="mtime"></span></th>
+            <th style="width:72px" class="adv">Mode</th>
+            <th style="width:250px" class="right">Actions</th>
           </tr>
         </thead>
         <tbody id="file-rows">
@@ -43,35 +53,36 @@
     </div>
   </div>
 
-  <div class="btn-row mt" id="bulk-actions" style="display:none">
-    <span class="muted small" id="bulk-count"></span>
-    <button class="btn btn-danger btn-sm" id="bulk-delete">Delete selected</button>
+  <div class="upload-bar" id="upload-bar">
+    <div class="upload-track"><div class="upload-fill" id="upload-fill"></div></div>
+    <div class="muted small mt" id="upload-label"></div>
+  </div>
+
+  <input type="file" id="file-input" multiple style="display:none">
+  <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
+  <p class="muted small mt">Up to <%= maxUploadMb %> MB per file. Files land in the folder you are viewing.</p>
+</div>
+
+<div class="drop-overlay" id="drop-overlay">
+  <div class="inner">
+    <strong>Drop to upload</strong>
+    <span id="drop-target-label">into this folder</span>
   </div>
 </div>
 
-<!-- --------------------------------------------------------- modals -->
-<div class="modal-backdrop" id="mkdir-modal">
+<!-- ------------------------------------------------------------ modals -->
+<div class="modal-backdrop" id="name-modal">
   <div class="modal">
-    <div class="modal-head"><h3>New folder</h3><button class="btn btn-sm btn-ghost" data-close-modal="mkdir-modal">&times;</button></div>
+    <div class="modal-head"><h3 id="name-modal-title">New folder</h3><button class="btn btn-sm btn-ghost" data-close-modal="name-modal">&times;</button></div>
     <div class="modal-body">
-      <div class="field"><label for="mkdir-name">Folder name</label><input id="mkdir-name" type="text" autocomplete="off"></div>
+      <div class="field">
+        <label for="name-input" id="name-modal-label">Folder name</label>
+        <input id="name-input" type="text" autocomplete="off">
+      </div>
     </div>
     <div class="modal-foot">
-      <button class="btn" data-close-modal="mkdir-modal">Cancel</button>
-      <button class="btn btn-primary" id="mkdir-go">Create</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="newfile-modal">
-  <div class="modal">
-    <div class="modal-head"><h3>New file</h3><button class="btn btn-sm btn-ghost" data-close-modal="newfile-modal">&times;</button></div>
-    <div class="modal-body">
-      <div class="field"><label for="newfile-name">File name</label><input id="newfile-name" type="text" autocomplete="off" placeholder="index.html"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" data-close-modal="newfile-modal">Cancel</button>
-      <button class="btn btn-primary" id="newfile-go">Create</button>
+      <button class="btn" data-close-modal="name-modal">Cancel</button>
+      <button class="btn btn-primary" id="name-go">Create</button>
     </div>
   </div>
 </div>
@@ -80,203 +91,795 @@
   <div class="modal modal-wide">
     <div class="modal-head">
       <h3 id="editor-title">Edit</h3>
-      <button class="btn btn-sm btn-ghost" data-close-modal="editor-modal">&times;</button>
+      <button class="btn btn-sm btn-ghost" id="editor-close">&times;</button>
     </div>
-    <div class="modal-body" style="padding:.6rem">
-      <textarea id="editor-area" class="editor-area" spellcheck="false" wrap="off"></textarea>
+    <div class="modal-body" style="padding:.5rem .7rem">
+      <div class="editor-shell">
+        <div class="editor-toolbar">
+          <div class="editor-status">
+            <span id="editor-lang">text</span>
+            <span id="editor-pos">Ln 1, Col 1</span>
+            <span id="editor-size"></span>
+            <span id="editor-dirty" class="editor-dirty"></span>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn btn-sm" id="editor-wrap">Wrap: off</button>
+          <span class="muted small">Ctrl/Cmd+S saves &middot; Ctrl/Cmd+F finds</span>
+        </div>
+        <textarea id="editor-area" class="editor-area" spellcheck="false"></textarea>
+      </div>
     </div>
     <div class="modal-foot">
-      <span class="muted small" id="editor-status"></span>
+      <span class="muted small" id="editor-msg"></span>
       <div class="spacer"></div>
-      <button class="btn" data-close-modal="editor-modal">Close</button>
+      <button class="btn" id="editor-cancel">Close</button>
       <button class="btn btn-primary" id="editor-save">Save</button>
     </div>
   </div>
 </div>
 
-<div class="modal-backdrop" id="rename-modal">
-  <div class="modal">
-    <div class="modal-head"><h3>Rename</h3><button class="btn btn-sm btn-ghost" data-close-modal="rename-modal">&times;</button></div>
-    <div class="modal-body">
-      <div class="field"><label for="rename-name">New name</label><input id="rename-name" type="text" autocomplete="off"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" data-close-modal="rename-modal">Cancel</button>
-      <button class="btn btn-primary" id="rename-go">Rename</button>
-    </div>
-  </div>
-</div>
+<script src="/vendor/codemirror/lib/codemirror.js"></script>
+<script src="/vendor/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+<script src="/vendor/codemirror/mode/xml/xml.js"></script>
+<script src="/vendor/codemirror/mode/javascript/javascript.js"></script>
+<script src="/vendor/codemirror/mode/css/css.js"></script>
+<script src="/vendor/codemirror/mode/php/php.js"></script>
+<script src="/vendor/codemirror/mode/clike/clike.js"></script>
+<script src="/vendor/codemirror/mode/markdown/markdown.js"></script>
+<script src="/vendor/codemirror/mode/yaml/yaml.js"></script>
+<script src="/vendor/codemirror/mode/shell/shell.js"></script>
+<script src="/vendor/codemirror/mode/sql/sql.js"></script>
+<script src="/vendor/codemirror/mode/nginx/nginx.js"></script>
+<script src="/vendor/codemirror/mode/dockerfile/dockerfile.js"></script>
+<script src="/vendor/codemirror/mode/python/python.js"></script>
+<script src="/vendor/codemirror/addon/search/search.js"></script>
+<script src="/vendor/codemirror/addon/search/searchcursor.js"></script>
+<script src="/vendor/codemirror/addon/dialog/dialog.js"></script>
+<script src="/vendor/codemirror/addon/edit/closebrackets.js"></script>
+<script src="/vendor/codemirror/addon/edit/matchbrackets.js"></script>
+<link rel="stylesheet" href="/vendor/codemirror/addon/dialog/dialog.css">
 
 <script>
   var SITE_ID = <%= site.id %>;
   var current = <%- jsonScript(listing.path || '') %>;
-  var renameTarget = null;
-  var editTarget = null;
+  var SITE_NAME = <%- jsonScript(site.name) %>;
 
-  function api(path, opts) { return HP.api('/api/sites/' + SITE_ID + '/files' + path, opts); }
+  var items = [];
+  var sortKey = 'name';
+  var sortDir = 1;
+  var lastClickedIndex = null;
 
+  function api(p, opts) { return HP.api('/api/sites/' + SITE_ID + '/files' + p, opts); }
+
+  /* =================================================== listing ========= */
   async function load(path) {
     current = path || '';
-    document.getElementById('dz-path').textContent = current ? '/' + current : 'the site root';
     history.replaceState({}, '', '/sites/' + SITE_ID + '/files?path=' + encodeURIComponent(current));
+    document.getElementById('drop-target-label').textContent =
+      current ? 'into /' + current : 'into the site root';
+
     var data;
     try {
       data = await fetch('/api/sites/' + SITE_ID + '/files?path=' + encodeURIComponent(current),
         { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
     } catch (err) {
-      HP.toast('Could not list that folder', 'error');
+      HP.toast('Could not open that folder', 'error');
       return;
     }
     if (data.error) { HP.toast(data.error, 'error'); return; }
+
+    items = data.items;
     renderCrumbs(data.path);
-    renderRows(data);
+    render(data);
   }
 
   function renderCrumbs(path) {
     var parts = path ? path.split('/') : [];
-    var html = '<a href="#" data-path="">' + HP.escapeHtml(<%- jsonScript(site.name) %>) + '</a>';
+    var el = document.getElementById('crumbs');
+    el.innerHTML = '';
+
+    var root = document.createElement('a');
+    root.href = '#';
+    root.textContent = SITE_NAME;
+    root.setAttribute('data-path', '');
+    el.appendChild(root);
+
     var acc = '';
     parts.forEach(function (p) {
       acc = acc ? acc + '/' + p : p;
-      html += '<span class="sep">/</span><a href="#" data-path="' + HP.escapeHtml(acc) + '">' + HP.escapeHtml(p) + '</a>';
+      var sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '/';
+      el.appendChild(sep);
+      var a = document.createElement('a');
+      a.href = '#';
+      a.textContent = p;
+      a.setAttribute('data-path', acc);
+      el.appendChild(a);
     });
-    var el = document.getElementById('crumbs');
-    el.innerHTML = html;
+
     el.querySelectorAll('a').forEach(function (a) {
       a.addEventListener('click', function (e) { e.preventDefault(); load(a.getAttribute('data-path')); });
+      // Breadcrumbs are drop targets too, so you can move things up a level.
+      makeDropTarget(a, a.getAttribute('data-path'));
     });
   }
 
-  function renderRows(data) {
+  /* Classifies a file for its little type badge. */
+  function iconFor(item) {
+    if (item.type === 'dir') return { cls: 'dir', text: '\u{1F4C1}' };
+    var ext = (item.name.split('.').pop() || '').toLowerCase();
+    if (item.name.indexOf('.') === -1) return { cls: 'doc', text: '' };
+    if (['png','jpg','jpeg','gif','webp','avif','svg','ico','bmp'].indexOf(ext) !== -1) return { cls: 'img', text: ext };
+    if (['zip','tar','gz','tgz','bz2','xz','7z','rar'].indexOf(ext) !== -1) return { cls: 'archive', text: ext };
+    if (['html','htm','css','js','mjs','cjs','ts','tsx','jsx','php','py','rb','sh','json','yml','yaml','xml','sql','vue','svelte','conf'].indexOf(ext) !== -1) return { cls: 'code', text: ext };
+    return { cls: 'doc', text: ext };
+  }
+
+  function sorted(list) {
+    var copy = list.slice();
+    copy.sort(function (a, b) {
+      // Folders always come first, whichever column is sorted.
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      var av, bv;
+      if (sortKey === 'size') { av = a.type === 'dir' ? -1 : a.size; bv = b.type === 'dir' ? -1 : b.size; }
+      else if (sortKey === 'mtime') { av = new Date(a.mtime).getTime(); bv = new Date(b.mtime).getTime(); }
+      else { return a.name.localeCompare(b.name, undefined, { numeric: true }) * sortDir; }
+      return (av - bv) * sortDir;
+    });
+    return copy;
+  }
+
+  function render(data) {
     var tbody = document.getElementById('file-rows');
-    var rows = '';
+    var filter = document.getElementById('filter').value.trim().toLowerCase();
+    var visible = sorted(items).filter(function (i) {
+      return !filter || i.name.toLowerCase().indexOf(filter) !== -1;
+    });
 
-    if (data.parent !== null && data.parent !== undefined) {
-      rows += '<tr><td></td><td colspan="5"><a href="#" class="nav-up" data-path="' + HP.escapeHtml(data.parent) + '">&larr; up one level</a></td></tr>';
+    tbody.innerHTML = '';
+
+    if (data && data.parent !== null && data.parent !== undefined && !filter) {
+      var up = document.createElement('tr');
+      up.innerHTML = '<td></td><td colspan="5"><a href="#" class="nav-up">&larr; up one level</a></td>';
+      up.querySelector('.nav-up').addEventListener('click', function (e) {
+        e.preventDefault(); load(data.parent);
+      });
+      makeDropTarget(up, data.parent);
+      tbody.appendChild(up);
     }
 
-    if (!data.items.length) {
-      rows += '<tr><td colspan="6" class="muted" style="padding:1.5rem">This folder is empty.</td></tr>';
+    if (!visible.length) {
+      var empty = document.createElement('tr');
+      empty.innerHTML = '<td colspan="6" style="padding:2rem">' +
+        (filter
+          ? '<div class="empty" style="padding:0"><h3>Nothing matches "' + HP.escapeHtml(filter) + '"</h3>' +
+            '<p>Clear the filter to see everything in this folder.</p></div>'
+          : '<div class="empty" style="padding:0"><div class="empty-icon">&#128193;</div>' +
+            '<h3>This folder is empty</h3><p>Drag files or a folder anywhere on this page to upload them.</p></div>') +
+        '</td>';
+      tbody.appendChild(empty);
+      updateSelection();
+      updateSummary(visible);
+      return;
     }
 
-    data.items.forEach(function (item) {
-      var isDir = item.type === 'dir';
-      rows += '<tr>' +
-        '<td><input type="checkbox" class="row-check" data-path="' + HP.escapeHtml(item.path) + '" style="width:auto"></td>' +
-        '<td><div class="file-name"><span class="file-icon ' + (isDir ? 'dir' : '') + '">' + (isDir ? '&#128193;' : '&#128196;') + '</span>' +
-          (isDir
-            ? '<a href="#" class="nav-dir" data-path="' + HP.escapeHtml(item.path) + '">' + HP.escapeHtml(item.name) + '</a>'
-            : HP.escapeHtml(item.name)) +
-          (item.symlink ? ' <span class="pill">link</span>' : '') +
-        '</div></td>' +
-        '<td class="muted small">' + (isDir ? '-' : HP.bytes(item.size)) + '</td>' +
-        '<td class="muted small nowrap">' + HP.relTime(item.mtime) + '</td>' +
-        '<td class="muted small mono">' + item.mode + '</td>' +
-        '<td class="right"><div class="file-actions">' +
-          (item.editable ? '<button class="btn btn-sm act-edit" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Edit</button>' : '') +
-          (/\.zip$/i.test(item.name) ? '<button class="btn btn-sm act-extract" data-path="' + HP.escapeHtml(item.path) + '">Extract</button>' : '') +
-          '<a class="btn btn-sm" href="/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path) + (isDir ? '&zip=1' : '') + '">' + (isDir ? 'Download zip' : 'Download') + '</a>' +
-          '<button class="btn btn-sm act-rename" data-path="' + HP.escapeHtml(item.path) + '" data-name="' + HP.escapeHtml(item.name) + '">Rename</button>' +
-          '<button class="btn btn-sm btn-danger act-delete" data-path="' + HP.escapeHtml(item.path) + '">Del</button>' +
-        '</div></td></tr>';
+    visible.forEach(function (item, index) {
+      tbody.appendChild(buildRow(item, index));
     });
-
-    tbody.innerHTML = rows;
-    bindRows();
-    updateBulk();
+    updateSelection();
+    updateSummary(visible);
   }
 
-  function bindRows() {
-    document.querySelectorAll('.nav-dir, .nav-up').forEach(function (a) {
-      a.addEventListener('click', function (e) { e.preventDefault(); load(a.getAttribute('data-path')); });
+  function updateSummary(visible) {
+    var dirs = visible.filter(function (i) { return i.type === 'dir'; }).length;
+    var files = visible.length - dirs;
+    var bytes = visible.reduce(function (n, i) { return n + (i.type === 'file' ? i.size : 0); }, 0);
+    document.getElementById('folder-summary').textContent =
+      dirs + ' folder' + (dirs === 1 ? '' : 's') + ', ' +
+      files + ' file' + (files === 1 ? '' : 's') + ' (' + HP.bytes(bytes) + ')';
+  }
+
+  function buildRow(item, index) {
+    var tr = document.createElement('tr');
+    tr.className = item.type === 'dir' ? 'row-dir' : 'row-file';
+    tr.setAttribute('data-path', item.path);
+    tr.setAttribute('data-index', String(index));
+    tr.draggable = true;
+
+    var icon = iconFor(item);
+
+    var tdCheck = document.createElement('td');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'row-check';
+    cb.style.width = 'auto';
+    cb.setAttribute('data-path', item.path);
+    cb.addEventListener('change', function () { updateSelection(); syncRowClass(tr, cb.checked); });
+    cb.addEventListener('click', function (e) {
+      // Shift-click selects a range, as in a desktop file manager.
+      if (e.shiftKey && lastClickedIndex !== null) {
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#file-rows tr[data-index]'));
+        var from = Math.min(lastClickedIndex, index);
+        var to = Math.max(lastClickedIndex, index);
+        rows.forEach(function (r) {
+          var i = parseInt(r.getAttribute('data-index'), 10);
+          if (i >= from && i <= to) {
+            var box = r.querySelector('.row-check');
+            box.checked = cb.checked;
+            syncRowClass(r, box.checked);
+          }
+        });
+        updateSelection();
+      }
+      lastClickedIndex = index;
     });
-    document.querySelectorAll('.act-delete').forEach(function (b) {
-      b.addEventListener('click', async function () {
-        if (!confirm('Delete ' + b.getAttribute('data-path') + '? This cannot be undone.')) return;
-        try { await api('/delete', { body: { paths: [b.getAttribute('data-path')] } }); HP.toast('Deleted', 'ok'); load(current); }
-        catch (err) { HP.toast(err.message, 'error'); }
-      });
+    tdCheck.appendChild(cb);
+
+    var tdName = document.createElement('td');
+    var wrap = document.createElement('div');
+    wrap.className = 'name-cell';
+    var badge = document.createElement('span');
+    badge.className = 'fm-icon ' + icon.cls;
+    badge.textContent = icon.text;
+    wrap.appendChild(badge);
+
+    if (item.type === 'dir') {
+      var a = document.createElement('a');
+      a.href = '#';
+      a.textContent = item.name;
+      a.addEventListener('click', function (e) { e.preventDefault(); load(item.path); });
+      wrap.appendChild(a);
+    } else if (item.editable) {
+      var ea = document.createElement('a');
+      ea.href = '#';
+      ea.className = 'fname';
+      ea.textContent = item.name;
+      ea.title = 'Open in the editor';
+      ea.addEventListener('click', function (e) { e.preventDefault(); openEditor(item.path); });
+      wrap.appendChild(ea);
+    } else {
+      var sp = document.createElement('span');
+      sp.className = 'fname';
+      sp.textContent = item.name;
+      wrap.appendChild(sp);
+    }
+    if (item.symlink) {
+      var link = document.createElement('span');
+      link.className = 'pill';
+      link.textContent = 'link';
+      wrap.appendChild(link);
+    }
+    tdName.appendChild(wrap);
+
+    var tdSize = document.createElement('td');
+    tdSize.className = 'muted small';
+    tdSize.textContent = item.type === 'dir' ? '-' : HP.bytes(item.size);
+
+    var tdTime = document.createElement('td');
+    tdTime.className = 'muted small nowrap';
+    tdTime.textContent = HP.relTime(item.mtime);
+    tdTime.title = new Date(item.mtime).toLocaleString();
+
+    var tdMode = document.createElement('td');
+    tdMode.className = 'muted small mono adv';
+    tdMode.textContent = item.mode;
+
+    var tdActions = document.createElement('td');
+    tdActions.className = 'right';
+    var actions = document.createElement('div');
+    actions.className = 'file-actions';
+
+    if (item.editable) actions.appendChild(button('Edit', '', function () { openEditor(item.path); }));
+    if (/\.zip$/i.test(item.name)) {
+      actions.appendChild(button('Extract', '', async function (btn) {
+        btn.disabled = true; btn.textContent = '...';
+        try {
+          var r = await api('/extract', { body: { path: item.path } });
+          HP.toast('Extracted ' + r.files + ' files', 'ok');
+          load(current);
+        } catch (err) { HP.toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Extract'; }
+      }));
+    }
+
+    var dl = document.createElement('a');
+    dl.className = 'btn btn-sm';
+    dl.href = '/api/sites/' + SITE_ID + '/files/download?path=' + encodeURIComponent(item.path) +
+      (item.type === 'dir' ? '&zip=1' : '');
+    dl.textContent = item.type === 'dir' ? 'Download zip' : 'Download';
+    actions.appendChild(dl);
+
+    actions.appendChild(button('Rename', '', function () { promptRename(item); }));
+    actions.appendChild(button('Delete', 'btn-danger', function () { confirmDelete([item.path]); }));
+
+    tdActions.appendChild(actions);
+
+    tr.appendChild(tdCheck);
+    tr.appendChild(tdName);
+    tr.appendChild(tdSize);
+    tr.appendChild(tdTime);
+    tr.appendChild(tdMode);
+    tr.appendChild(tdActions);
+
+    /* ------------------------------------------------ drag to move ---- */
+    tr.addEventListener('dragstart', function (e) {
+      // Dragging an unselected row drags just that row; otherwise the selection.
+      var paths = selectedPaths();
+      if (paths.indexOf(item.path) === -1) paths = [item.path];
+      e.dataTransfer.setData('application/x-hostpanel-paths', JSON.stringify(paths));
+      e.dataTransfer.effectAllowed = 'move';
+      tr.classList.add('dragging');
     });
-    document.querySelectorAll('.act-rename').forEach(function (b) {
-      b.addEventListener('click', function () {
-        renameTarget = b.getAttribute('data-path');
-        document.getElementById('rename-name').value = b.getAttribute('data-name');
-        HP.openModal('rename-modal');
-      });
+    tr.addEventListener('dragend', function () {
+      tr.classList.remove('dragging');
+      document.querySelectorAll('.drop-target').forEach(function (n) { n.classList.remove('drop-target'); });
     });
-    document.querySelectorAll('.act-extract').forEach(function (b) {
-      b.addEventListener('click', async function () {
-        b.disabled = true; b.textContent = '...';
-        try { var r = await api('/extract', { body: { path: b.getAttribute('data-path') } }); HP.toast('Extracted ' + r.files + ' files', 'ok'); load(current); }
-        catch (err) { HP.toast(err.message, 'error'); b.disabled = false; b.textContent = 'Extract'; }
-      });
+
+    if (item.type === 'dir') makeDropTarget(tr, item.path);
+
+    return tr;
+  }
+
+  function button(label, cls, onClick) {
+    var b = document.createElement('button');
+    b.className = 'btn btn-sm ' + (cls || '');
+    b.textContent = label;
+    b.addEventListener('click', function () { onClick(b); });
+    return b;
+  }
+
+  function syncRowClass(tr, on) { tr.classList.toggle('selected', on); }
+
+  /* ================================================ drag to move ====== */
+  function makeDropTarget(el, destPath) {
+    el.addEventListener('dragover', function (e) {
+      if (!e.dataTransfer.types || e.dataTransfer.types.indexOf('application/x-hostpanel-paths') === -1) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drop-target');
     });
-    document.querySelectorAll('.act-edit').forEach(function (b) {
-      b.addEventListener('click', function () { openEditor(b.getAttribute('data-path'), b.getAttribute('data-name')); });
-    });
-    document.querySelectorAll('.row-check').forEach(function (c) {
-      c.addEventListener('change', updateBulk);
+    el.addEventListener('dragleave', function () { el.classList.remove('drop-target'); });
+    el.addEventListener('drop', async function (e) {
+      if (!e.dataTransfer.types || e.dataTransfer.types.indexOf('application/x-hostpanel-paths') === -1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove('drop-target');
+      var paths;
+      try { paths = JSON.parse(e.dataTransfer.getData('application/x-hostpanel-paths')); }
+      catch (_) { return; }
+      if (!paths || !paths.length) return;
+
+      try {
+        var res = await api('/move', { body: { paths: paths, to: destPath } });
+        HP.toast('Moved ' + res.moved.length + ' item' + (res.moved.length === 1 ? '' : 's'), 'ok');
+        load(current);
+      } catch (err) { HP.toast(err.message, 'error'); }
     });
   }
 
-  function selected() {
+  /* ================================================== selection ======= */
+  function selectedPaths() {
     return Array.prototype.slice.call(document.querySelectorAll('.row-check:checked'))
       .map(function (c) { return c.getAttribute('data-path'); });
   }
 
-  function updateBulk() {
-    var sel = selected();
-    document.getElementById('bulk-actions').style.display = sel.length ? 'flex' : 'none';
-    document.getElementById('bulk-count').textContent = sel.length + ' selected';
+  function updateSelection() {
+    var sel = selectedPaths();
+    document.getElementById('selection-count').textContent = sel.length ? sel.length + ' selected' : '';
+    document.getElementById('bulk-delete').style.display = sel.length ? '' : 'none';
+    document.getElementById('bulk-download').style.display = sel.length ? '' : 'none';
+    var all = document.getElementById('check-all');
+    var boxes = document.querySelectorAll('.row-check');
+    all.checked = boxes.length > 0 && sel.length === boxes.length;
+    all.indeterminate = sel.length > 0 && sel.length < boxes.length;
   }
 
   document.getElementById('check-all').addEventListener('change', function (e) {
-    document.querySelectorAll('.row-check').forEach(function (c) { c.checked = e.target.checked; });
-    updateBulk();
+    document.querySelectorAll('.row-check').forEach(function (c) {
+      c.checked = e.target.checked;
+      syncRowClass(c.closest('tr'), c.checked);
+    });
+    updateSelection();
   });
 
-  document.getElementById('bulk-delete').addEventListener('click', async function () {
-    var sel = selected();
-    if (!sel.length || !confirm('Delete ' + sel.length + ' item(s)? This cannot be undone.')) return;
-    try { await api('/delete', { body: { paths: sel } }); HP.toast('Deleted ' + sel.length + ' item(s)', 'ok'); load(current); }
-    catch (err) { HP.toast(err.message, 'error'); }
+  document.getElementById('bulk-delete').addEventListener('click', function () {
+    confirmDelete(selectedPaths());
   });
 
-  /* ---------------------------------------------------------- editor */
-  async function openEditor(path, name) {
+  document.getElementById('bulk-download').addEventListener('click', function () {
+    selectedPaths().forEach(function (p, i) {
+      // Stagger slightly so the browser does not drop concurrent downloads.
+      setTimeout(function () {
+        var item = items.filter(function (x) { return x.path === p; })[0];
+        window.location.href = '/api/sites/' + SITE_ID + '/files/download?path=' +
+          encodeURIComponent(p) + (item && item.type === 'dir' ? '&zip=1' : '');
+      }, i * 400);
+    });
+  });
+
+  async function confirmDelete(paths) {
+    if (!paths.length) return;
+    var label = paths.length === 1 ? paths[0] : paths.length + ' items';
+    if (!confirm('Delete ' + label + '?\n\nThis cannot be undone.')) return;
+    try {
+      await api('/delete', { body: { paths: paths } });
+      HP.toast('Deleted', 'ok');
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  }
+
+  /* =================================================== sorting ======== */
+  document.querySelectorAll('th.sortable').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var key = th.getAttribute('data-sort');
+      if (sortKey === key) sortDir = -sortDir;
+      else { sortKey = key; sortDir = 1; }
+      document.querySelectorAll('[data-arrow]').forEach(function (a) { a.textContent = ''; });
+      var arrow = document.querySelector('[data-arrow="' + key + '"]');
+      if (arrow) arrow.textContent = sortDir === 1 ? '▲' : '▼';
+      try { localStorage.setItem('hp-fm-sort', key + ':' + sortDir); } catch (e) { /* ignore */ }
+      render(null);
+    });
+  });
+
+  try {
+    var savedSort = localStorage.getItem('hp-fm-sort');
+    if (savedSort) {
+      sortKey = savedSort.split(':')[0];
+      sortDir = parseInt(savedSort.split(':')[1], 10) === -1 ? -1 : 1;
+      var a0 = document.querySelector('[data-arrow="' + sortKey + '"]');
+      if (a0) a0.textContent = sortDir === 1 ? '▲' : '▼';
+    }
+  } catch (e) { /* ignore */ }
+
+  document.getElementById('filter').addEventListener('input', function () { render(null); });
+
+  /* ============================================ create and rename ===== */
+  var nameMode = 'folder';
+  var renameTarget = null;
+
+  function openNameModal(mode, item) {
+    nameMode = mode;
+    renameTarget = item || null;
+    var titles = { folder: 'New folder', file: 'New file', rename: 'Rename' };
+    var labels = { folder: 'Folder name', file: 'File name', rename: 'New name' };
+    document.getElementById('name-modal-title').textContent = titles[mode];
+    document.getElementById('name-modal-label').textContent = labels[mode];
+    document.getElementById('name-go').textContent = mode === 'rename' ? 'Rename' : 'Create';
+    var input = document.getElementById('name-input');
+    input.value = item ? item.name : '';
+    HP.openModal('name-modal');
+    setTimeout(function () { input.focus(); input.select(); }, 30);
+  }
+
+  function promptRename(item) { openNameModal('rename', item); }
+
+  document.getElementById('new-folder-btn').addEventListener('click', function () { openNameModal('folder'); });
+  document.getElementById('new-file-btn').addEventListener('click', function () { openNameModal('file'); });
+
+  document.getElementById('name-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('name-go').click(); }
+  });
+
+  document.getElementById('name-go').addEventListener('click', async function () {
+    var value = document.getElementById('name-input').value.trim();
+    if (!value) { HP.toast('Enter a name', 'error'); return; }
+    try {
+      if (nameMode === 'folder') await api('/mkdir', { body: { path: current, name: value } });
+      else if (nameMode === 'file') await api('/touch', { body: { path: current, name: value } });
+      else await api('/rename', { body: { path: renameTarget.path, name: value } });
+      HP.closeModal('name-modal');
+      load(current);
+    } catch (err) { HP.toast(err.message, 'error'); }
+  });
+
+  /* ==================================================== uploads ======= */
+  var fileInput = document.getElementById('file-input');
+  var folderInput = document.getElementById('folder-input');
+
+  document.getElementById('upload-btn').addEventListener('click', function () { fileInput.click(); });
+  document.getElementById('upload-folder-btn').addEventListener('click', function () { folderInput.click(); });
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files.length) uploadFiles(Array.prototype.map.call(fileInput.files, function (f) {
+      return { file: f, path: f.name };
+    }));
+    fileInput.value = '';
+  });
+  folderInput.addEventListener('change', function () {
+    if (folderInput.files.length) uploadFiles(Array.prototype.map.call(folderInput.files, function (f) {
+      return { file: f, path: f.webkitRelativePath || f.name };
+    }));
+    folderInput.value = '';
+  });
+
+  /**
+   * Walks a dropped directory tree. The entries API is the only way to read
+   * folder structure out of a drop, and it must be traversed before the
+   * event's dataTransfer is neutered, so entries are captured synchronously.
+   */
+  function readEntry(entry, prefix) {
+    return new Promise(function (resolve) {
+      if (entry.isFile) {
+        entry.file(function (file) {
+          resolve([{ file: file, path: (prefix ? prefix + '/' : '') + entry.name }]);
+        }, function () { resolve([]); });
+      } else if (entry.isDirectory) {
+        var reader = entry.createReader();
+        var all = [];
+        var readBatch = function () {
+          reader.readEntries(function (batch) {
+            if (!batch.length) {
+              Promise.all(all.map(function (e) {
+                return readEntry(e, (prefix ? prefix + '/' : '') + entry.name);
+              })).then(function (groups) {
+                resolve(groups.reduce(function (acc, g) { return acc.concat(g); }, []));
+              });
+              return;
+            }
+            all = all.concat(Array.prototype.slice.call(batch));
+            readBatch(); // readEntries returns at most 100 at a time
+          }, function () { resolve([]); });
+        };
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
+  }
+
+  async function collectFromDrop(dataTransfer) {
+    var out = [];
+    var entries = [];
+    if (dataTransfer.items && dataTransfer.items.length) {
+      for (var i = 0; i < dataTransfer.items.length; i += 1) {
+        var item = dataTransfer.items[i];
+        var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+    }
+    if (entries.length) {
+      var groups = await Promise.all(entries.map(function (e) { return readEntry(e, ''); }));
+      groups.forEach(function (g) { out = out.concat(g); });
+      return out;
+    }
+    // Older browsers: flat file list only.
+    return Array.prototype.map.call(dataTransfer.files || [], function (f) {
+      return { file: f, path: f.name };
+    });
+  }
+
+  function uploadFiles(entries) {
+    if (!entries.length) return;
+
+    var fd = new FormData();
+    fd.append('path', current);
+    var paths = [];
+    entries.forEach(function (e) {
+      fd.append('files', e.file);
+      paths.push(e.path);
+    });
+    fd.append('relpaths', JSON.stringify(paths));
+
+    var bar = document.getElementById('upload-bar');
+    var fill = document.getElementById('upload-fill');
+    var label = document.getElementById('upload-label');
+    bar.classList.add('on');
+    fill.style.width = '0%';
+    label.textContent = 'Uploading ' + entries.length + ' file' + (entries.length === 1 ? '' : 's') + '...';
+
+    // XHR rather than fetch, because it reports upload progress.
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/sites/' + SITE_ID + '/files/upload');
+    xhr.setRequestHeader('X-CSRF-Token', HP.CSRF);
+    xhr.setRequestHeader('Accept', 'application/json');
+
+    xhr.upload.addEventListener('progress', function (e) {
+      if (!e.lengthComputable) return;
+      var pct = Math.round((e.loaded / e.total) * 100);
+      fill.style.width = pct + '%';
+      label.textContent = 'Uploading ' + entries.length + ' file' +
+        (entries.length === 1 ? '' : 's') + ' - ' + pct + '%';
+    });
+
+    xhr.addEventListener('load', function () {
+      bar.classList.remove('on');
+      var res = {};
+      try { res = JSON.parse(xhr.responseText || '{}'); } catch (_) { res = {}; }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var n = (res.saved || []).length;
+        HP.toast('Uploaded ' + n + ' file' + (n === 1 ? '' : 's'), 'ok');
+        if (res.failed && res.failed.length) {
+          HP.toast(res.failed.length + ' file(s) were rejected: ' + res.failed[0].error, 'error');
+        }
+        load(current);
+      } else {
+        HP.toast(res.error || ('Upload failed (' + xhr.status + ')'), 'error');
+      }
+    });
+
+    xhr.addEventListener('error', function () {
+      bar.classList.remove('on');
+      HP.toast('Upload failed', 'error');
+    });
+
+    xhr.send(fd);
+  }
+
+  /* ------------------------------------------- whole-page drop zone -- */
+  var overlay = document.getElementById('drop-overlay');
+  var dragDepth = 0;
+
+  function isFileDrag(e) {
+    return e.dataTransfer && e.dataTransfer.types &&
+      Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') !== -1;
+  }
+
+  window.addEventListener('dragenter', function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth += 1;
+    overlay.classList.add('on');
+  });
+  window.addEventListener('dragover', function (e) {
+    if (isFileDrag(e)) e.preventDefault();
+  });
+  window.addEventListener('dragleave', function (e) {
+    if (!isFileDrag(e)) return;
+    dragDepth -= 1;
+    if (dragDepth <= 0) { dragDepth = 0; overlay.classList.remove('on'); }
+  });
+  window.addEventListener('drop', async function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    overlay.classList.remove('on');
+    var entries = await collectFromDrop(e.dataTransfer);
+    if (entries.length) uploadFiles(entries);
+  });
+
+  /* ==================================================== editor ======== */
+  var editor = null;
+  var editTarget = null;
+  var savedContent = '';
+  var wrapOn = false;
+
+  var MODES = {
+    html: 'htmlmixed', htm: 'htmlmixed', vue: 'htmlmixed', svelte: 'htmlmixed',
+    css: 'css', scss: 'css', less: 'css',
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+    ts: 'javascript', tsx: 'javascript', json: { name: 'javascript', json: true },
+    php: 'php', py: 'python', rb: 'text/x-ruby',
+    sh: 'shell', bash: 'shell', zsh: 'shell',
+    md: 'markdown', markdown: 'markdown',
+    yml: 'yaml', yaml: 'yaml',
+    sql: 'sql', xml: 'xml', svg: 'xml',
+    conf: 'nginx', nginx: 'nginx',
+    dockerfile: 'dockerfile'
+  };
+
+  function modeFor(name) {
+    var lower = name.toLowerCase();
+    if (lower === 'dockerfile') return { mode: 'dockerfile', label: 'dockerfile' };
+    var ext = (lower.split('.').pop() || '');
+    var mode = MODES[ext];
+    return { mode: mode || null, label: mode ? ext : 'text' };
+  }
+
+  var cmAvailable = typeof CodeMirror !== 'undefined';
+
+  async function openEditor(path) {
     editTarget = path;
     document.getElementById('editor-title').textContent = path;
-    document.getElementById('editor-area').value = 'Loading...';
-    document.getElementById('editor-status').textContent = '';
+    document.getElementById('editor-msg').textContent = '';
+    document.getElementById('editor-dirty').textContent = '';
     HP.openModal('editor-modal');
+
+    var area = document.getElementById('editor-area');
+    var info = modeFor(path.split('/').pop());
+    document.getElementById('editor-lang').textContent = info.label;
+
     try {
       var data = await fetch('/api/sites/' + SITE_ID + '/files/read?path=' + encodeURIComponent(path),
         { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); });
       if (data.error) throw new Error(data.error);
-      document.getElementById('editor-area').value = data.content;
-      document.getElementById('editor-status').textContent = HP.bytes(data.size);
+
+      savedContent = data.content;
+      document.getElementById('editor-size').textContent = HP.bytes(data.size);
+
+      if (cmAvailable) {
+        if (!editor) {
+          editor = CodeMirror.fromTextArea(area, {
+            lineNumbers: true,
+            theme: HP.currentTheme() === 'light' ? 'default' : 'material-darker',
+            indentUnit: 2,
+            tabSize: 2,
+            lineWrapping: false,
+            autoCloseBrackets: true,
+            matchBrackets: true,
+            extraKeys: {
+              'Ctrl-S': saveFile,
+              'Cmd-S': saveFile,
+              Tab: function (cm) {
+                if (cm.somethingSelected()) cm.indentSelection('add');
+                else cm.replaceSelection('  ', 'end');
+              }
+            }
+          });
+          editor.on('cursorActivity', function () {
+            var c = editor.getCursor();
+            document.getElementById('editor-pos').textContent =
+              'Ln ' + (c.line + 1) + ', Col ' + (c.ch + 1);
+          });
+          editor.on('change', function () {
+            document.getElementById('editor-dirty').textContent =
+              editor.getValue() === savedContent ? '' : 'unsaved changes';
+          });
+        }
+        editor.setOption('mode', info.mode);
+        editor.setOption('theme', HP.currentTheme() === 'light' ? 'default' : 'material-darker');
+        editor.setValue(data.content);
+        editor.clearHistory();
+        setTimeout(function () { editor.refresh(); editor.focus(); }, 40);
+      } else {
+        // CodeMirror missing: a plain textarea still edits files fine.
+        area.value = data.content;
+        area.addEventListener('input', function () {
+          document.getElementById('editor-dirty').textContent =
+            area.value === savedContent ? '' : 'unsaved changes';
+        });
+      }
     } catch (err) {
-      document.getElementById('editor-area').value = '';
       HP.toast(err.message, 'error');
       HP.closeModal('editor-modal');
     }
   }
 
-  document.getElementById('editor-save').addEventListener('click', async function () {
-    var btn = this;
+  function editorValue() {
+    return editor ? editor.getValue() : document.getElementById('editor-area').value;
+  }
+
+  async function saveFile() {
+    var btn = document.getElementById('editor-save');
     btn.disabled = true;
     try {
-      await api('/write', { body: { path: editTarget, content: document.getElementById('editor-area').value } });
+      var content = editorValue();
+      await api('/write', { body: { path: editTarget, content: content } });
+      savedContent = content;
+      document.getElementById('editor-dirty').textContent = '';
+      document.getElementById('editor-msg').textContent = 'Saved at ' + new Date().toLocaleTimeString();
       HP.toast('Saved ' + editTarget, 'ok');
-      document.getElementById('editor-status').textContent = 'Saved ' + new Date().toLocaleTimeString();
       load(current);
     } catch (err) { HP.toast(err.message, 'error'); }
     btn.disabled = false;
+    return false;
+  }
+
+  document.getElementById('editor-save').addEventListener('click', saveFile);
+
+  function closeEditor() {
+    if (editorValue() !== savedContent &&
+        !confirm('You have unsaved changes. Close anyway?')) return;
+    HP.closeModal('editor-modal');
+  }
+  document.getElementById('editor-close').addEventListener('click', closeEditor);
+  document.getElementById('editor-cancel').addEventListener('click', closeEditor);
+
+  document.getElementById('editor-wrap').addEventListener('click', function () {
+    wrapOn = !wrapOn;
+    this.textContent = 'Wrap: ' + (wrapOn ? 'on' : 'off');
+    if (editor) editor.setOption('lineWrapping', wrapOn);
+    else document.getElementById('editor-area').wrap = wrapOn ? 'soft' : 'off';
   });
 
-  // Ctrl/Cmd+S inside the editor saves.
+  // Ctrl/Cmd+S works even when focus is outside the editor.
+  document.addEventListener('keydown', function (e) {
+    var open = document.getElementById('editor-modal').classList.contains('open');
+    if (open && (e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveFile(); }
+  });
+
+  // A plain textarea needs its own tab handling.
   document.getElementById('editor-area').addEventListener('keydown', function (e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); document.getElementById('editor-save').click(); }
+    if (editor) return;
     if (e.key === 'Tab') {
       e.preventDefault();
       var s = this.selectionStart, en = this.selectionEnd;
@@ -285,67 +888,11 @@
     }
   });
 
-  /* ------------------------------------------------------ create/rename */
-  document.getElementById('mkdir-go').addEventListener('click', async function () {
-    try {
-      await api('/mkdir', { body: { path: current, name: document.getElementById('mkdir-name').value } });
-      HP.closeModal('mkdir-modal');
-      document.getElementById('mkdir-name').value = '';
-      load(current);
-    } catch (err) { HP.toast(err.message, 'error'); }
+  // Leaving the page with unsaved work should ask first.
+  window.addEventListener('beforeunload', function (e) {
+    var open = document.getElementById('editor-modal').classList.contains('open');
+    if (open && editorValue() !== savedContent) { e.preventDefault(); e.returnValue = ''; }
   });
-
-  document.getElementById('newfile-go').addEventListener('click', async function () {
-    try {
-      await api('/touch', { body: { path: current, name: document.getElementById('newfile-name').value } });
-      HP.closeModal('newfile-modal');
-      document.getElementById('newfile-name').value = '';
-      load(current);
-    } catch (err) { HP.toast(err.message, 'error'); }
-  });
-
-  document.getElementById('rename-go').addEventListener('click', async function () {
-    try {
-      await api('/rename', { body: { path: renameTarget, name: document.getElementById('rename-name').value } });
-      HP.closeModal('rename-modal');
-      load(current);
-    } catch (err) { HP.toast(err.message, 'error'); }
-  });
-
-  /* ---------------------------------------------------------- uploads */
-  var dz = document.getElementById('dropzone');
-  var input = document.getElementById('file-input');
-
-  document.getElementById('upload-btn').addEventListener('click', function () { input.click(); });
-  dz.addEventListener('click', function () { input.click(); });
-  input.addEventListener('change', function () { if (input.files.length) uploadFiles(input.files); });
-
-  ['dragenter', 'dragover'].forEach(function (ev) {
-    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('hot'); });
-  });
-  ['dragleave', 'drop'].forEach(function (ev) {
-    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('hot'); });
-  });
-  dz.addEventListener('drop', function (e) {
-    if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
-  });
-
-  async function uploadFiles(files) {
-    var fd = new FormData();
-    fd.append('path', current);
-    for (var i = 0; i < files.length; i += 1) fd.append('files', files[i]);
-    dz.textContent = 'Uploading ' + files.length + ' file(s)...';
-    try {
-      var res = await api('/upload', { body: fd });
-      HP.toast('Uploaded ' + res.saved.length + ' file(s)', 'ok');
-      load(current);
-    } catch (err) {
-      HP.toast(err.message, 'error');
-    }
-    dz.innerHTML = 'Drop files here to upload into <strong id="dz-path">' + (current ? '/' + HP.escapeHtml(current) : 'the site root') + '</strong>, or click to choose';
-    dz.appendChild(input);
-    input.value = '';
-  }
 
   load(current);
 </script>

@@ -36,6 +36,9 @@ app.use(
   '/vendor/xterm-addon-fit',
   express.static(path.join(MODULES, '@xterm', 'addon-fit'), { maxAge: '7d' })
 );
+// CodeMirror powers the file editor. Same reasoning: served locally so the
+// panel is fully usable on a LAN with no internet access.
+app.use('/vendor/codemirror', express.static(path.join(MODULES, 'codemirror'), { maxAge: '7d' }));
 
 const store = new SqliteStore({ ttlMs: config.sessionHours * 3600 * 1000 });
 const sessionMiddleware = session({

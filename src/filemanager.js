@@ -176,6 +176,71 @@ async function chmod(site, relPath, mode) {
   return true;
 }
 
+/**
+ * Saves an upload that carried a relative path, as a dropped folder does.
+ * Every segment is validated separately, so "../" cannot sneak in through the
+ * browser-supplied path.
+ */
+async function saveUploadNested(site, destDir, relativePath, tmpFile) {
+  const segments = String(relativePath || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((seg) => seg && seg !== '.');
+
+  for (const seg of segments) {
+    if (seg === '..') throw new Error('Upload path is not allowed');
+    validateName(seg);
+  }
+  if (!segments.length) throw new Error('Upload has no file name');
+
+  const target = path.posix.join(destDir || '', segments.join('/'));
+  const { abs } = resolveSafe(site, target);
+  await fsp.mkdir(path.dirname(abs), { recursive: true });
+  await fsp.rename(tmpFile, abs).catch(async () => {
+    await fsp.copyFile(tmpFile, abs);
+    await fsp.unlink(tmpFile).catch(() => {});
+  });
+  await applyOwnership(site, abs);
+  return abs;
+}
+
+/**
+ * Moves files and folders into another folder inside the same site.
+ * Used by drag-and-drop in the file manager.
+ */
+async function move(site, sourcePaths, destDir) {
+  const list = Array.isArray(sourcePaths) ? sourcePaths : [sourcePaths];
+  const dest = resolveSafe(site, destDir || '');
+
+  const destStat = await fsp.stat(dest.abs).catch(() => null);
+  if (!destStat || !destStat.isDirectory()) throw new Error('The destination is not a folder');
+
+  const moved = [];
+  for (const rel of list) {
+    if (!rel) continue;
+    const source = resolveSafe(site, rel);
+    if (source.rel === '') throw new Error('The site root cannot be moved');
+
+    const name = path.basename(source.abs);
+    const targetRel = dest.rel ? `${dest.rel}/${name}` : name;
+
+    // Moving a folder into itself, or into its own child, would destroy it.
+    const sourcePrefix = `${source.rel}/`;
+    if (dest.rel === source.rel || dest.rel.startsWith(sourcePrefix)) {
+      throw new Error(`"${name}" cannot be moved inside itself`);
+    }
+    if (targetRel === source.rel) continue; // already there
+
+    const target = resolveSafe(site, targetRel);
+    if (fs.existsSync(target.abs)) {
+      throw new Error(`"${name}" already exists in the destination folder`);
+    }
+    await fsp.rename(source.abs, target.abs);
+    moved.push({ from: source.rel, to: target.rel });
+  }
+  return moved;
+}
+
 async function saveUpload(site, relPath, tmpFile, originalName) {
   validateName(originalName);
   const { abs } = resolveSafe(site, path.posix.join(relPath || '', originalName));
@@ -258,6 +323,8 @@ module.exports = {
   remove,
   chmod,
   saveUpload,
+  saveUploadNested,
+  move,
   extractZip,
   zipPath,
   isTextFile,

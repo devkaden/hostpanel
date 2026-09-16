@@ -156,9 +156,25 @@ installed.
 live on the site page. Without a domain the site is still reachable at
 `http://<host-ip>:<port>` for testing.
 
-**Files.** Browse, drag-and-drop upload, edit text files in place (Ctrl+S
-saves), extract zips, download a folder as a zip, rename, chmod, bulk delete.
-Paths are resolved against the site root and symlink escapes are rejected.
+**Files.** A proper file manager:
+
+- **Drag anywhere to upload** — drop files *or whole folders* onto the page and
+  the directory structure is recreated, with a progress bar.
+- **Drag to move** — drag rows onto a folder, or onto a breadcrumb to move up a
+  level. Multi-select with checkboxes, shift-click for a range.
+- **Filter and sort** — filter the current folder, sort by name, size or date.
+  Folders always stay on top; the sort is remembered.
+- **Edit in place** — syntax highlighting and line numbers for HTML, CSS, JS,
+  PHP, Python, shell, SQL, YAML, Markdown, nginx and Dockerfiles. Ctrl/Cmd+S
+  saves, Ctrl/Cmd+F finds, and closing with unsaved changes asks first. If
+  CodeMirror is unavailable the editor degrades to a plain textarea that still
+  works.
+- Extract zips, download a file or a folder as a zip, rename, chmod, bulk
+  delete.
+
+Every path is resolved against the site root. Traversal, symlink escapes and
+zip-slip are rejected, and each segment of an uploaded folder path is validated
+separately, so a crafted `webkitRelativePath` cannot write outside the site.
 
 **Shell.** A real terminal into the container — `docker exec` behind a
 websocket, with resize, full-screen programs and tab completion. WordPress

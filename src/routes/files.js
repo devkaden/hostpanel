@@ -16,7 +16,8 @@ const router = express.Router();
 
 const upload = multer({
   dest: config.tmpDir,
-  limits: { fileSize: config.maxUploadBytes, files: 50 },
+  // A dropped folder can carry a lot of small files.
+  limits: { fileSize: config.maxUploadBytes, files: 500 },
 });
 
 /* ------------------------------------------------------------------ *
@@ -142,18 +143,49 @@ router.post(
 );
 
 router.post(
+  '/api/sites/:id/files/move',
+  loadSite,
+  wrap(async (req, res) => {
+    const moved = await fm.move(req.site, req.body.paths || req.body.path, req.body.to);
+    audit(req, 'files.move', req.site.name, moved.map((m) => `${m.from} -> ${m.to}`).join(', ').slice(0, 500));
+    res.json({ ok: true, moved });
+  })
+);
+
+router.post(
   '/api/sites/:id/files/upload',
   loadSite,
-  upload.array('files', 50),
+  upload.array('files', 500),
   wrap(async (req, res) => {
     const dest = String(req.body.path || '');
-    const saved = [];
-    for (const file of req.files || []) {
-      await fm.saveUpload(req.site, dest, file.path, file.originalname);
-      saved.push(file.originalname);
+    // A dropped folder sends one relative path per file, in the same order.
+    let relPaths = req.body.relpaths;
+    if (typeof relPaths === 'string') {
+      try {
+        relPaths = JSON.parse(relPaths);
+      } catch (_) {
+        relPaths = null;
+      }
     }
+
+    const saved = [];
+    const failed = [];
+    const files = req.files || [];
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const relative = Array.isArray(relPaths) && relPaths[i] ? relPaths[i] : file.originalname;
+      try {
+        await fm.saveUploadNested(req.site, dest, relative, file.path);
+        saved.push(relative);
+      } catch (err) {
+        failed.push({ name: relative, error: err.message });
+        await fsp.unlink(file.path).catch(() => {});
+      }
+    }
+
     audit(req, 'files.upload', req.site.name, saved.join(', ').slice(0, 500));
-    res.json({ ok: true, saved });
+    res.json({ ok: true, saved, failed });
   })
 );
 
