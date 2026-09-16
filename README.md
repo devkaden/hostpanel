@@ -582,6 +582,13 @@ username+address, twenty per account, thirty per address, in a ten minute
 window. Kept in the database because in-memory counters are cleared by a
 restart — and this panel restarts itself whenever it updates.
 
+**Each person manages their own account.** The account menu has **Your
+Account**: their details, password, two-factor and interface preferences, plus
+a count of other browsers they are signed in on and a button to end those
+sessions. Role, site quota and active state are not editable there — a
+self-service page that writes them is a privilege escalation with a friendly
+label — so those stay on the Users page for administrators.
+
 **Settings → Security lists how the install actually stands**: whether secure
 cookies are on, whether the session secret is still the shipped default,
 whether `TRUST_PROXY` matches reality, whether the host shell is open, and

@@ -442,6 +442,37 @@ console.log('\nlogin throttling survives a restart');
     /catch \(_\) \{\s*\n\s*return 0;/.test(authSrc));
 }
 
+console.log('\nthe error page can always render');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');
+  // The CSRF check renders the error page itself. If the template locals are
+  // set after it, a rejected request throws inside the layout and the user
+  // gets an EJS stack trace on top of the original problem.
+  const localsAt = src.indexOf('res.locals.panelTitle');
+  const csrfAt = src.indexOf('app.use(auth.csrf)');
+  check('template locals are set before the CSRF check',
+    localsAt > 0 && csrfAt > 0 && localsAt < csrfAt,
+    `locals at ${localsAt}, csrf at ${csrfAt}`);
+  check('and there are app-level fallbacks for every layout local',
+    /app\.locals\.panelTitle/.test(src) && /app\.locals\.csrfToken/.test(src));
+}
+
+console.log('\nthe account page edits only what it should');
+{
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'auth.js'), 'utf8');
+  const account = routes.slice(routes.indexOf("router.post('/account'"), routes.indexOf("router.post('/account/sessions/end'"));
+  // Role, quota and active state are administrator territory. A self-service
+  // page that writes them is a privilege escalation with a friendly label.
+  check('self-service editing cannot change role',
+    !/\brole\b/.test(account), account.slice(0, 300));
+  check('or the site quota or active flag',
+    !/site_quota|\bactive\b/.test(account));
+  check('it updates the email and nothing else',
+    /UPDATE users SET email = \? WHERE id = \?/.test(account));
+  check('ending other sessions bumps the epoch, not just the rows',
+    /bumpSessionEpoch/.test(routes.slice(routes.indexOf('sessions/end'))));
+}
+
 console.log('\nCSP failures are visible');
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'app.js'), 'utf8');

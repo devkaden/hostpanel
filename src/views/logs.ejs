@@ -3,7 +3,7 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; logs</h1>
+      <h1><%= site.name %> &middot; Logs</h1>
       <p class="sub">Container output and the site's own access/error logs.</p>
     </div>
   </div>
@@ -19,10 +19,10 @@
           <% }) %>
         </select>
         <select id="tail" style="width:auto">
-          <option value="200">last 200 lines</option>
-          <option value="400" selected>last 400 lines</option>
-          <option value="1000">last 1000 lines</option>
-          <option value="5000">last 5000 lines</option>
+          <option value="200">Last 200 Lines</option>
+          <option value="400" selected>Last 400 Lines</option>
+          <option value="1000">Last 1000 Lines</option>
+          <option value="5000">Last 5000 Lines</option>
         </select>
         <button class="btn btn-sm" id="refresh">Refresh</button>
         <label class="check mb0" style="margin:0;align-items:center">
@@ -32,7 +32,7 @@
       </div>
       <div class="btn-row">
         <button class="btn btn-sm" id="copy-log">Copy</button>
-        <button class="btn btn-sm btn-danger" id="clear-log">Clear file</button>
+        <button class="btn btn-sm btn-danger" id="clear-log">Clear File</button>
       </div>
     </div>
   </div>

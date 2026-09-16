@@ -34,7 +34,7 @@
   <div class="topbar-right">
     <% if (u) { %>
       <a class="btn btn-primary btn-sm" href="/sites/new" title="Create a new site">
-        <%- icon('plus') %><span class="btn-label">New site</span>
+        <%- icon('plus') %><span class="btn-label">New Site</span>
       </a>
 
       <div class="seg seg-mode adv" title="Simple hides Docker internals. Advanced shows everything.">
@@ -64,16 +64,19 @@
             <%- icon('settings') %>
             <span>Interface: <strong data-mode-label>Simple</strong></span>
           </button>
+          <a class="menu-item" href="/account" role="menuitem">
+            <%- icon('userCircle') %><span>Your Account</span>
+          </a>
           <a class="menu-item" href="/account/password" role="menuitem">
-            <%- icon('key') %><span>Change password</span>
+            <%- icon('key') %><span>Change Password</span>
           </a>
           <a class="menu-item" href="/account/2fa" role="menuitem">
             <%- icon('shield') %>
-            <span>Two-factor
+            <span>Two-Factor
               <% if (typeof twoFactorOn !== 'undefined' && twoFactorOn) { %>
-                <span class="pill pill-running">on</span>
+                <span class="pill pill-running">On</span>
               <% } else { %>
-                <span class="pill pill-error">off</span>
+                <span class="pill pill-error">Off</span>
               <% } %>
             </span>
           </a>
@@ -81,7 +84,7 @@
           <form method="post" action="/logout">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <button class="menu-item menu-danger" type="submit">
-              <%- icon('signOut') %><span>Sign out</span>
+              <%- icon('signOut') %><span>Sign Out</span>
             </button>
           </form>
         </div>

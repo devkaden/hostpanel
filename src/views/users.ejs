@@ -7,7 +7,7 @@
       <p class="sub">Administrators see and manage every site. Standard users only see the sites they own.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-primary" id="add-user-btn"><%- icon('plus') %><span>Add user</span></button>
+      <button class="btn btn-primary" id="add-user-btn"><%- icon('plus') %><span>Add User</span></button>
     </div>
   </div>
 
@@ -96,7 +96,7 @@
 <div class="modal-backdrop" id="new-user-modal">
   <div class="modal">
     <div class="modal-head">
-      <h3>Add a user</h3>
+      <h3>Add a User</h3>
       <button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="new-user-modal"><%- icon('close') %></button>
     </div>
     <form method="post" action="/users">
@@ -114,12 +114,12 @@
           <div class="field">
             <label for="u-role">Role</label>
             <select id="u-role" name="role">
-              <option value="user">Standard user</option>
+              <option value="user">Standard User</option>
               <option value="admin">Administrator</option>
             </select>
           </div>
           <div class="field">
-            <label for="u-quota">Site limit</label>
+            <label for="u-quota">Site Limit</label>
             <input id="u-quota" name="site_quota" type="number" min="0" value="0">
             <div class="hint">0 means no limit.</div>
           </div>
@@ -136,7 +136,7 @@
       </div>
       <div class="modal-foot">
         <button class="btn" type="button" data-close-modal="new-user-modal">Cancel</button>
-        <button class="btn btn-primary" type="submit"><%- icon('plus') %><span>Create user</span></button>
+        <button class="btn btn-primary" type="submit"><%- icon('plus') %><span>Create User</span></button>
       </div>
     </form>
   </div>
@@ -144,22 +144,22 @@
 
 <div class="modal-backdrop" id="edit-modal">
   <div class="modal">
-    <div class="modal-head"><h3 id="edit-title">Edit user</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="edit-modal"><%- icon('close') %></button></div>
+    <div class="modal-head"><h3 id="edit-title">Edit User</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="edit-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <div class="field"><label for="e-email">Email</label><input id="e-email" type="email"></div>
       <div class="field-row">
         <div class="field">
           <label for="e-role">Role</label>
-          <select id="e-role"><option value="user">Standard user</option><option value="admin">Administrator</option></select>
+          <select id="e-role"><option value="user">Standard User</option><option value="admin">Administrator</option></select>
         </div>
         <div class="field">
-          <label for="e-quota">Site limit</label>
+          <label for="e-quota">Site Limit</label>
           <input id="e-quota" type="number" min="0">
         </div>
       </div>
       <div class="check">
         <input type="checkbox" id="e-active">
-        <label for="e-active">Account is active</label>
+        <label for="e-active">Account Is Active</label>
       </div>
     </div>
     <div class="modal-foot">

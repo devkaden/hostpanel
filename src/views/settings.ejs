@@ -18,12 +18,12 @@
         <div class="card">
           <h2>Panel</h2>
           <div class="field">
-            <label for="panel_title">Panel name</label>
+            <label for="panel_title">Panel Name</label>
             <input id="panel_title" name="panel_title" type="text" value="<%= settings.panel_title %>">
             <div class="hint">Shown top-left and in the browser tab.</div>
           </div>
           <div class="field">
-            <label for="host_ip">Host IP for reverse proxying</label>
+            <label for="host_ip">Host IP for Reverse Proxying</label>
             <div style="display:flex;gap:.5rem">
               <input id="host_ip" name="host_ip" type="text" value="<%= settings.host_ip %>" placeholder="192.168.1.50">
               <button class="btn" type="button" id="detect-ip">Detect</button>
@@ -51,7 +51,7 @@
               <input id="port_range_start" name="port_range_start" type="number" min="1024" max="65535" value="<%= portRange.start %>">
             </div>
             <div class="field">
-              <label for="port_range_end">to</label>
+              <label for="port_range_end">To</label>
               <input id="port_range_end" name="port_range_end" type="number" min="1024" max="65535" value="<%= portRange.end %>">
             </div>
           </div>
@@ -59,7 +59,7 @@
           <div class="check">
             <input type="checkbox" id="allow_host_shell" name="allow_host_shell" <%= settings.allow_host_shell === '1' ? 'checked' : '' %>>
             <div>
-              <label for="allow_host_shell">Allow the host shell for administrators</label>
+              <label for="allow_host_shell">Allow the Host Shell for Administrators</label>
               <div class="hint">
                 Gives admins a root-level shell on this machine through the browser.
                 <% if (!hostShellSupported) { %>Currently unavailable: the optional <code class="inline">node-pty</code> package is not installed.<% } %>
@@ -87,13 +87,13 @@
           </div>
 
           <div class="field">
-            <label for="min_password_length">Minimum password length</label>
+            <label for="min_password_length">Minimum Password Length</label>
             <input id="min_password_length" name="min_password_length" type="number" min="8" max="128"
                    value="<%= settings.min_password_length || '10' %>">
             <div class="hint">Applies the next time someone changes their password.</div>
           </div>
 
-          <h3 class="mt">How this install stands</h3>
+          <h3 class="mt">How This Install Stands</h3>
           <ul class="seclist">
             <% security.items.forEach(function (item) { %>
               <li class="<%= item.ok === true ? 'ok' : (item.ok === false ? 'bad' : (item.warn ? 'warn' : 'info')) %>">
@@ -114,7 +114,7 @@
 
           <div class="field-row">
             <div class="field">
-              <label for="theme">Colour theme</label>
+              <label for="theme">Colour Theme</label>
               <select id="theme" name="theme">
                 <option value="system" <%= settings.theme === 'system' ? 'selected' : '' %>>Match the device</option>
                 <option value="dark" <%= settings.theme === 'dark' ? 'selected' : '' %>>Always dark</option>
@@ -136,7 +136,7 @@
 
           <div class="field-row">
             <div class="field">
-              <label for="brand_accent">Accent colour</label>
+              <label for="brand_accent">Accent Colour</label>
               <div style="display:flex;gap:.5rem;align-items:center">
                 <input type="color" id="accent_picker" value="<%= settings.brand_accent || '#4f8cff' %>" style="width:44px;padding:2px;height:36px">
                 <input id="brand_accent" name="brand_accent" type="text" value="<%= settings.brand_accent || '#4f8cff' %>" placeholder="#4f8cff">
@@ -161,7 +161,7 @@
           <div class="check">
             <input type="checkbox" id="npmplus_enabled" name="npmplus_enabled" <%= settings.npmplus_enabled === '1' ? 'checked' : '' %>>
             <div>
-              <label for="npmplus_enabled">Manage reverse proxy hosts automatically</label>
+              <label for="npmplus_enabled">Manage Reverse Proxy Hosts Automatically</label>
               <div class="hint">When on, creating a site with a domain also creates the proxy host and requests a certificate.</div>
             </div>
           </div>
@@ -174,18 +174,18 @@
 
           <div class="field-row">
             <div class="field">
-              <label for="npmplus_email">Admin email</label>
+              <label for="npmplus_email">Admin Email</label>
               <input id="npmplus_email" name="npmplus_email" type="text" value="<%= settings.npmplus_email %>" autocomplete="off">
             </div>
             <div class="field">
-              <label for="npmplus_password">Admin password</label>
+              <label for="npmplus_password">Admin Password</label>
               <input id="npmplus_password" name="npmplus_password" type="password" value="<%= settings.npmplus_password %>" autocomplete="new-password">
               <div class="hint">Leave as-is to keep the stored password.</div>
             </div>
           </div>
 
           <div class="field">
-            <label for="npmplus_le_email">Let's Encrypt email</label>
+            <label for="npmplus_le_email">Let's Encrypt Email</label>
             <input id="npmplus_le_email" name="npmplus_le_email" type="text" value="<%= settings.npmplus_le_email %>" placeholder="you@example.com">
             <div class="hint">Used for expiry notices on certificates the panel requests. Falls back to the admin email.</div>
           </div>
@@ -199,13 +199,13 @@
           </div>
 
           <div class="btn-row">
-            <button class="btn" type="button" id="test-npm">Test connection</button>
+            <button class="btn" type="button" id="test-npm">Test Connection</button>
           </div>
           <div id="test-result" class="mt"></div>
         </div>
 
         <div class="btn-row">
-          <button class="btn btn-primary" type="submit">Save settings</button>
+          <button class="btn btn-primary" type="submit">Save Settings</button>
         </div>
       </form>
     </div>
@@ -233,7 +233,7 @@
       </div>
 
       <div class="card">
-        <h2>Paths and ports</h2>
+        <h2>Paths and Ports</h2>
         <dl class="dl">
           <dt>Data directory</dt><dd><code class="inline"><%= dataDir %></code></dd>
           <dt>Site directories</dt><dd><code class="inline"><%= config.sitesDir %>/&lt;name&gt;</code></dd>
@@ -245,7 +245,7 @@
 
       <div class="card">
         <div class="card-head">
-          <h2>Saved presets</h2>
+          <h2>Saved Presets</h2>
           <span class="muted small"><%= templates.length %></span>
         </div>
         <% if (!templates.length) { %>
@@ -275,14 +275,14 @@
       </div>
 
       <div class="card">
-        <h2>Setup guide</h2>
+        <h2>Setup Guide</h2>
         <p class="muted small">Walks through the host address, the reverse proxy connection and your first site.</p>
-        <button class="btn" type="button" id="rerun-setup">Run the setup guide again</button>
+        <button class="btn" type="button" id="rerun-setup">Run the Setup Guide Again</button>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <h2>NPMplus proxy hosts</h2>
+          <h2>NPMplus Proxy Hosts</h2>
           <button class="btn btn-sm" id="load-hosts">Load</button>
         </div>
         <div id="hosts-list" class="muted small">Click load to list the proxy hosts NPMplus currently knows about.</div>

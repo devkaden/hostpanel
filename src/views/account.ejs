@@ -1,0 +1,176 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<div class="wrap wrap-narrow">
+
+  <div class="page-head">
+    <div>
+      <h1>Your Account</h1>
+      <p class="sub">Your details, your password and your sign-in security.</p>
+    </div>
+  </div>
+
+  <% if (error) { %><div class="alert alert-error"><%= error %></div><% } %>
+  <% if (saved) { %><div class="alert alert-ok">Your details were saved.</div><% } %>
+
+  <div class="card">
+    <div class="account-head">
+      <span class="avatar avatar-xl"><%= user.username.slice(0, 1).toUpperCase() %></span>
+      <div>
+        <h2 class="account-name"><%= user.username %></h2>
+        <div class="muted small">
+          <%= user.role === 'admin' ? 'Administrator' : 'Standard User' %>
+          <span class="dot-sep">&middot;</span>
+          <% if (account.last_login) { %>
+            Last Signed In <span class="rel" data-time="<%= account.last_login %>"><%= account.last_login %></span>
+          <% } else { %>First Sign In<% } %>
+          <span class="dot-sep">&middot;</span>
+          <%= siteCount %> Site<%= siteCount === 1 ? '' : 's' %>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your Details</h2>
+    <form method="post" action="/account">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="field">
+        <label for="a-username">Username</label>
+        <input id="a-username" type="text" value="<%= user.username %>" readonly>
+        <div class="hint">
+          Usernames cannot be changed &mdash; they are what your sites and the
+          activity log are recorded against. An administrator can create a new
+          account if you need a different one.
+        </div>
+      </div>
+      <div class="field">
+        <label for="a-email">Email Address</label>
+        <input id="a-email" name="email" type="email" value="<%= account.email || '' %>"
+               autocomplete="email" placeholder="you@example.com">
+        <div class="hint">Optional. Only used so an administrator knows who this account belongs to.</div>
+      </div>
+      <button class="btn btn-primary" type="submit"><%- icon('check') %><span>Save Details</span></button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Sign-In Security</h2>
+
+    <div class="account-row">
+      <div class="account-row-icon"><%- icon('key') %></div>
+      <div class="account-row-main">
+        <strong>Password</strong>
+        <div class="muted small">
+          At least <%= minPasswordLength %> characters. Changing it signs out every
+          other browser you are signed in on.
+        </div>
+      </div>
+      <a class="btn" href="/account/password">Change Password</a>
+    </div>
+
+    <div class="account-row">
+      <div class="account-row-icon"><%- icon('shield') %></div>
+      <div class="account-row-main">
+        <strong>
+          Two-Factor Authentication
+          <% if (account.totp_enabled) { %>
+            <span class="pill pill-running"><span class="dot"></span>On</span>
+          <% } else { %>
+            <span class="pill pill-error">Off</span>
+          <% } %>
+        </strong>
+        <div class="muted small">
+          <% if (account.totp_enabled) { %>
+            A code from your phone is required as well as your password.
+            <%= recoveryRemaining %> recovery code<%= recoveryRemaining === 1 ? '' : 's' %> left.
+          <% } else if (twoFactorRequired) { %>
+            Required for your account. Set it up to carry on using the panel.
+          <% } else { %>
+            Not set up. This is the single most useful thing you can turn on for
+            an account reachable from the internet.
+          <% } %>
+        </div>
+      </div>
+      <a class="btn <%= account.totp_enabled ? '' : 'btn-primary' %>" href="/account/2fa">
+        <%= account.totp_enabled ? 'Manage' : 'Set Up' %>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Interface</h2>
+    <div class="account-row">
+      <div class="account-row-icon"><%- icon('settings') %></div>
+      <div class="account-row-main">
+        <strong>Detail Level</strong>
+        <div class="muted small">
+          Simple hides Docker internals. Advanced shows everything. Saved to your
+          account, so it follows you to another browser.
+        </div>
+      </div>
+      <div class="seg">
+        <button type="button" data-mode-set="simple">Simple</button>
+        <button type="button" data-mode-set="advanced">Advanced</button>
+      </div>
+    </div>
+
+    <div class="account-row">
+      <div class="account-row-icon"><%- icon('moon') %></div>
+      <div class="account-row-main">
+        <strong>Theme</strong>
+        <div class="muted small">Also saved to your account.</div>
+      </div>
+      <div class="seg" id="theme-seg">
+        <button type="button" data-theme-set="system">System</button>
+        <button type="button" data-theme-set="light">Light</button>
+        <button type="button" data-theme-set="dark">Dark</button>
+      </div>
+    </div>
+  </div>
+
+  <% if (sessionsOther > 0) { %>
+    <div class="card">
+      <h2>Other Sign-Ins</h2>
+      <p class="muted small">
+        This account is signed in on <strong><%= sessionsOther %></strong> other
+        browser<%= sessionsOther === 1 ? '' : 's' %>. Ending them is worth doing if
+        you have signed in somewhere you no longer control.
+      </p>
+      <form method="post" action="/account/sessions/end">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn-danger" type="submit">
+          <%- icon('signOut') %><span>Sign Out Everywhere Else</span>
+        </button>
+      </form>
+    </div>
+  <% } %>
+</div>
+
+<script>
+  // The theme buttons write through the same helper the nav toggle uses, so
+  // the choice is stored against the account rather than this browser.
+  document.querySelectorAll('[data-theme-set]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      HP.setTheme(b.getAttribute('data-theme-set'), true);
+      markTheme(b.getAttribute('data-theme-set'));
+    });
+  });
+
+  function markTheme(value) {
+    document.querySelectorAll('[data-theme-set]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-set') === value));
+    });
+  }
+
+  var stored = 'system';
+  try { stored = localStorage.getItem('hp-theme') || 'system'; } catch (e) { /* ignore */ }
+  markTheme(stored);
+
+  document.querySelectorAll('.rel[data-time]').forEach(function (el) {
+    var when = new Date(el.getAttribute('data-time').replace(' ', 'T') + 'Z');
+    if (isNaN(when.getTime())) return;
+    el.title = when.toLocaleString();
+    el.textContent = HP.relTime(when.getTime());
+  });
+</script>
+<%- include('partials/foot') %>

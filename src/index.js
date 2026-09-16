@@ -57,6 +57,25 @@ const ASSET_VERSION = (() => {
 // before the per-request locals are set.
 app.locals.assetVersion = ASSET_VERSION;
 app.locals.icon = require('./icons').icon;
+/*
+ * Fallbacks, so that rendering a page can never fail for want of a local.
+ *
+ * The per-request middleware below overwrites all of these. They exist for the
+ * case where something fails before that middleware runs: an error page is the
+ * worst possible moment to throw a second error, and "panelTitle is not
+ * defined" on top of the original problem helps nobody.
+ */
+app.locals.panelTitle = 'HostPanel';
+app.locals.csrfToken = '';
+app.locals.currentPath = '/';
+app.locals.brandAccent = '';
+app.locals.brandLogo = '';
+app.locals.themeSetting = 'system';
+app.locals.uiModeSetting = 'simple';
+app.locals.twoFactorOn = false;
+app.locals.hostShell = false;
+app.locals.flash = null;
+app.locals.siteTypes = config.siteTypes;
 
 // xterm.js is served from node_modules so the panel works on an offline LAN.
 const MODULES = path.join(__dirname, '..', 'node_modules');
@@ -85,6 +104,32 @@ const sessionMiddleware = session({
   },
 });
 app.use(sessionMiddleware);
+/*
+ * Common template locals, set before anything that can render a page.
+ *
+ * Ordering is the whole point. These used to be set after the CSRF check,
+ * which renders the error page itself when a token is stale - so a rejected
+ * request tried to render a layout whose panelTitle did not exist yet, and the
+ * user got an EJS stack trace instead of "reload and try again". Any
+ * middleware that can render has to come after this one.
+ */
+app.use((req, res, next) => {
+  res.locals.jsonScript = jsonForScript;
+  res.locals.panelTitle = getSetting('panel_title') || 'HostPanel';
+  // The nav shows whether the signed-in account has a second factor, because
+  // "off" is worth noticing every time you look at it.
+  res.locals.twoFactorOn = Boolean(req.user && req.user.totp_enabled);
+  res.locals.siteTypes = config.siteTypes;
+  res.locals.currentPath = req.path;
+  res.locals.flash = null;
+  res.locals.hostShell = terminal.hostShellAvailable();
+  res.locals.brandAccent = getSetting('brand_accent') || '';
+  res.locals.brandLogo = getSetting('brand_logo') || '';
+  res.locals.themeSetting = getSetting('theme') || 'system';
+  res.locals.uiModeSetting = getSetting('ui_mode') || 'simple';
+  next();
+});
+
 app.use(auth.csrf);
 
 /**
@@ -185,23 +230,6 @@ function jsonForScript(value) {
     .replace(/\u2029/g, '\\u2029');
 }
 
-// Common template locals.
-app.use((req, res, next) => {
-  res.locals.jsonScript = jsonForScript;
-  res.locals.panelTitle = getSetting('panel_title') || 'HostPanel';
-  // The nav shows whether the signed-in account has a second factor, because
-  // "off" is worth noticing every time you look at it.
-  res.locals.twoFactorOn = Boolean(req.user && req.user.totp_enabled);
-  res.locals.siteTypes = config.siteTypes;
-  res.locals.currentPath = req.path;
-  res.locals.flash = null;
-  res.locals.hostShell = terminal.hostShellAvailable();
-  res.locals.brandAccent = getSetting('brand_accent') || '';
-  res.locals.brandLogo = getSetting('brand_logo') || '';
-  res.locals.themeSetting = getSetting('theme') || 'system';
-  res.locals.uiModeSetting = getSetting('ui_mode') || 'simple';
-  next();
-});
 
 /* ------------------------------------------------------------------ *
  * Routes

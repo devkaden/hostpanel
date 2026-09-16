@@ -4,7 +4,7 @@
 
   <div class="page-head">
     <div>
-      <h1>Let's get you set up</h1>
+      <h1>Let's Get You Set Up</h1>
       <p class="sub">Three things, then you can create your first site. You can change any of it later in Settings.</p>
     </div>
   </div>
@@ -17,7 +17,7 @@
 
   <!-- ------------------------------------------------------ step 1 --- -->
   <section class="card" data-step="1">
-    <h2>Where does traffic come in?</h2>
+    <h2>Where Does Traffic Come in?</h2>
     <p class="muted small">
       Every site you create runs in its own container on this machine, listening on
       its own port. Your reverse proxy sends visitors to those ports. For that to
@@ -37,7 +37,7 @@
     </div>
 
     <div class="field">
-      <label for="panel_title">What should this panel be called?</label>
+      <label for="panel_title">What Should This Panel Be Called?</label>
       <input id="panel_title" type="text" value="<%= settings.panel_title %>" placeholder="HostPanel">
       <div class="hint">Shown in the top-left corner and the browser tab.</div>
     </div>
@@ -53,13 +53,13 @@
 
     <div class="btn-row mt">
       <button class="btn btn-primary" data-next="2">Continue</button>
-      <button class="btn btn-ghost" id="skip">Skip setup</button>
+      <button class="btn btn-ghost" id="skip">Skip Setup</button>
     </div>
   </section>
 
   <!-- ------------------------------------------------------ step 2 --- -->
   <section class="card" data-step="2" style="display:none">
-    <h2>Connect your reverse proxy</h2>
+    <h2>Connect Your Reverse Proxy</h2>
     <p class="muted small">
       HostPanel can talk to <strong>NPMplus</strong> (or Nginx Proxy Manager) for you. When it is
       connected, creating a site with a domain also sets up the proxy and requests
@@ -77,11 +77,11 @@
 
     <div class="field-row">
       <div class="field">
-        <label for="npmplus_email">Your NPMplus login email</label>
+        <label for="npmplus_email">Your NPMplus Login Email</label>
         <input id="npmplus_email" type="text" value="<%= settings.npmplus_email %>" autocomplete="off">
       </div>
       <div class="field">
-        <label for="npmplus_password">Your NPMplus password</label>
+        <label for="npmplus_password">Your NPMplus Password</label>
         <input id="npmplus_password" type="password" value="<%= settings.npmplus_password %>" autocomplete="new-password">
       </div>
     </div>
@@ -103,20 +103,20 @@
     </div>
 
     <div class="btn-row">
-      <button class="btn" type="button" id="test">Test connection</button>
+      <button class="btn" type="button" id="test">Test Connection</button>
     </div>
     <div id="test-result" class="mt"></div>
 
     <div class="btn-row mt">
       <button class="btn" data-next="1">Back</button>
       <button class="btn btn-primary" data-next="3">Continue</button>
-      <button class="btn btn-ghost" data-next="3" id="skip-proxy">Set this up later</button>
+      <button class="btn btn-ghost" data-next="3" id="skip-proxy">Set This up Later</button>
     </div>
   </section>
 
   <!-- ------------------------------------------------------ step 3 --- -->
   <section class="card" data-step="3" style="display:none">
-    <h2>You're ready</h2>
+    <h2>You're Ready</h2>
     <p class="muted small">Here is what happens when you create a site:</p>
 
     <ol class="steps" style="max-width:none;margin-top:1rem">
@@ -136,8 +136,8 @@
 
     <div class="btn-row mt">
       <button class="btn" data-next="2">Back</button>
-      <a class="btn btn-primary" href="/sites/new" id="create-first">Create my first site</a>
-      <button class="btn btn-ghost" id="finish">Finish, take me to the dashboard</button>
+      <a class="btn btn-primary" href="/sites/new" id="create-first">Create My First Site</a>
+      <button class="btn btn-ghost" id="finish">Finish, Take Me to the Dashboard</button>
     </div>
   </section>
 </div>

@@ -3,7 +3,7 @@
 <div class="wrap wrap-narrow">
   <div class="page-head">
     <div>
-      <h1>New site</h1>
+      <h1>New Site</h1>
       <p class="sub">Pick a type and a name. Everything else has a sensible default.</p>
     </div>
   </div>
@@ -19,10 +19,10 @@
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
     <div class="card">
-      <h2>What are you hosting?</h2>
+      <h2>What Are You Hosting?</h2>
 
       <div class="field">
-        <label for="type">Type of site</label>
+        <label for="type">Type of Site</label>
         <select id="type" name="type" onchange="updateType()">
           <% Object.keys(config.siteTypes).forEach(function (key) { %>
             <option value="<%= key %>" <%= form.type === key ? 'selected' : '' %>><%= config.siteTypes[key].label %></option>
@@ -38,7 +38,7 @@
             <span class="help" data-help="A preset remembers the settings of a site you configured before, so you do not have to set them up again."></span>
           </label>
           <select id="template_id" name="template_id">
-            <option value="">No preset - use the defaults</option>
+            <option value="">No Preset - Use the Defaults</option>
             <% templates.forEach(function (t) { %>
               <option value="<%= t.id %>" data-type="<%= t.type %>"><%= t.name %><%= t.description ? ' - ' + t.description : '' %></option>
             <% }) %>
@@ -64,7 +64,7 @@
       </div>
 
       <div class="field adv">
-        <label for="extra_domains">Other addresses for the same site</label>
+        <label for="extra_domains">Other Addresses for the Same Site</label>
         <input id="extra_domains" name="extra_domains" type="text" value="<%= form.extra_domains || '' %>" placeholder="www.example.com, example.com">
         <div class="hint">Separate with commas. They share one certificate.</div>
       </div>
@@ -82,10 +82,10 @@
     </div>
 
     <div class="card" id="runtime-card">
-      <h2>How it runs</h2>
+      <h2>How It Runs</h2>
 
       <div class="field" data-for="php wordpress">
-        <label for="php_version">PHP version</label>
+        <label for="php_version">PHP Version</label>
         <select id="php_version" name="runtime_version">
           <% config.phpVersions.forEach(function (v) { %>
             <option value="<%= v %>" <%= form.runtime_version === v ? 'selected' : '' %>><%= v %></option>
@@ -94,7 +94,7 @@
       </div>
 
       <div class="field" data-for="node">
-        <label for="node_version">Node.js version</label>
+        <label for="node_version">Node.js Version</label>
         <select id="node_version" name="node_runtime_version">
           <% config.nodeVersions.forEach(function (v) { %>
             <option value="<%= v %>"><%= v %></option>
@@ -180,7 +180,7 @@
     </div>
 
     <div class="card adv">
-      <h2>Advanced container options</h2>
+      <h2>Advanced Container Options</h2>
       <p class="muted small">Leave these alone unless you know you need them.</p>
 
       <div class="field">
@@ -228,7 +228,7 @@
     </div>
 
     <div class="btn-row">
-      <button class="btn btn-primary" type="submit">Create site</button>
+      <button class="btn btn-primary" type="submit">Create Site</button>
       <a class="btn" href="/">Cancel</a>
     </div>
   </form>

@@ -4,7 +4,7 @@
 
   <div class="page-head">
     <div>
-      <h1>Two-factor authentication</h1>
+      <h1>Two-Factor Authentication</h1>
       <p class="sub">
         A code from your phone, on top of your password. It is the single most
         useful thing you can turn on for an account that is reachable from the
@@ -25,7 +25,7 @@
 
   <% if (recoveryCodes) { %>
     <div class="card">
-      <h2>Save your recovery codes</h2>
+      <h2>Save Your Recovery Codes</h2>
       <p class="muted">
         Each of these works once, in place of a code from your phone. They are
         stored hashed, exactly like a password &mdash; <strong>this is the only
@@ -37,16 +37,16 @@
       </div>
       <div class="mt">
         <button class="btn" data-copy="<%= recoveryCodes.join('\n') %>" data-copy-label="Recovery codes">
-          <%- icon('copy') %><span>Copy all</span>
+          <%- icon('copy') %><span>Copy All</span>
         </button>
-        <a class="btn btn-primary" href="/"><%- icon('check') %><span>I have saved them</span></a>
+        <a class="btn btn-primary" href="/"><%- icon('check') %><span>I Have Saved Them</span></a>
       </div>
     </div>
   <% } %>
 
   <% if (!enabled && secret) { %>
     <div class="card">
-      <h2>Set it up</h2>
+      <h2>Set It Up</h2>
       <ol class="steps">
         <li>
           <strong>Install an authenticator app</strong> if you do not have one.
@@ -69,7 +69,7 @@
           <div class="twofa-qr"><img src="<%= qr %>" alt="Setup QR code" width="240" height="240"></div>
         <% } %>
         <div class="twofa-key">
-          <label class="muted small" for="totp-secret">Setup key</label>
+          <label class="muted small" for="totp-secret">Setup Key</label>
           <div class="copy-field">
             <input id="totp-secret" type="text" value="<%= secret %>" readonly onclick="this.select()">
             <button class="btn btn-sm" data-copy="<%= secret %>" data-copy-label="Setup key">Copy</button>
@@ -84,7 +84,7 @@
       <form method="post" action="/account/2fa/enable" autocomplete="off" class="mt">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
-          <label for="code">Code from your app</label>
+          <label for="code">Code From Your App</label>
           <input id="code" name="code" type="text" class="code-input" inputmode="numeric"
                  autocomplete="one-time-code" placeholder="000000" required>
           <div class="hint">
@@ -93,7 +93,7 @@
           </div>
         </div>
         <button class="btn btn-primary" type="submit">
-          <%- icon('check') %><span>Turn on two-factor</span>
+          <%- icon('check') %><span>Turn On Two-Factor</span>
         </button>
       </form>
     </div>
@@ -102,8 +102,8 @@
   <% if (enabled && !recoveryCodes) { %>
     <div class="card">
       <h2>
-        <span class="pill pill-running"><span class="dot"></span>on</span>
-        Two-factor is protecting this account
+        <span class="pill pill-running"><span class="dot"></span>On</span>
+        Two-Factor Is Protecting This Account
       </h2>
       <p class="muted">
         You have <strong><%= remaining %></strong> recovery code<%= remaining === 1 ? '' : 's' %> left.
@@ -114,7 +114,7 @@
     </div>
 
     <div class="card">
-      <h3>New recovery codes</h3>
+      <h3>New Recovery Codes</h3>
       <p class="muted small">
         Generating a new set replaces the old one immediately. Do this if you have
         used most of them, or if you think someone else has seen the list.
@@ -122,27 +122,27 @@
       <form method="post" action="/account/2fa/recovery" autocomplete="off">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
-          <label for="rec-password">Confirm your password</label>
+          <label for="rec-password">Confirm Your Password</label>
           <input id="rec-password" name="password" type="password" autocomplete="current-password" required>
         </div>
-        <button class="btn" type="submit"><%- icon('refresh') %><span>Generate new codes</span></button>
+        <button class="btn" type="submit"><%- icon('refresh') %><span>Generate New Codes</span></button>
       </form>
     </div>
 
     <% if (!required) { %>
       <div class="card">
-        <h3>Turn it off</h3>
+        <h3>Turn It Off</h3>
         <p class="muted small">
           Your account goes back to being protected by a password alone.
         </p>
         <form method="post" action="/account/2fa/disable" autocomplete="off">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field">
-            <label for="off-password">Confirm your password</label>
+            <label for="off-password">Confirm Your Password</label>
             <input id="off-password" name="password" type="password" autocomplete="current-password" required>
           </div>
           <button class="btn btn-danger" type="submit">
-            <%- icon('alert') %><span>Turn off two-factor</span>
+            <%- icon('alert') %><span>Turn Off Two-Factor</span>
           </button>
         </form>
       </div>

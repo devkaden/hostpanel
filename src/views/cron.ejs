@@ -3,11 +3,11 @@
 <div class="wrap">
   <div class="page-head">
     <div>
-      <h1><%= site.name %> &middot; scheduled tasks</h1>
+      <h1><%= site.name %> &middot; Scheduled Tasks</h1>
       <p class="sub">Commands that run inside this site automatically, on a schedule you choose.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-primary" id="new-job-btn"><%- icon('plus') %><span>New task</span></button>
+      <button class="btn btn-primary" id="new-job-btn"><%- icon('plus') %><span>New Task</span></button>
     </div>
   </div>
 
@@ -21,7 +21,7 @@
             <th>Name</th>
             <th style="width:150px">Schedule</th>
             <th>Command</th>
-            <th style="width:130px">Last run</th>
+            <th style="width:130px">Last Run</th>
             <th style="width:90px">Status</th>
             <th style="width:220px" class="right">Actions</th>
           </tr>
@@ -31,10 +31,10 @@
             <tr><td colspan="6" style="padding:2rem">
               <div class="empty" style="padding:0">
                 <div class="empty-icon"><%- icon('clock', 'ico-lg') %></div>
-                <h3>No scheduled tasks yet</h3>
+                <h3>No Scheduled Tasks Yet</h3>
                 <p>A scheduled task runs a command inside this site on a repeating schedule &mdash;
                   clearing a cache nightly, sending a digest every hour, and so on.</p>
-                <button class="btn btn-primary mt" data-new-job>Add a scheduled task</button>
+                <button class="btn btn-primary mt" data-new-job>Add a Scheduled Task</button>
               </div>
             </td></tr>
           <% } %>
@@ -69,7 +69,7 @@
   </div>
 
   <div class="card">
-    <h3>How the schedule field works</h3>
+    <h3>How the Schedule Field Works</h3>
     <p class="muted small">Standard five-field cron syntax in UTC: <code class="inline">minute hour day-of-month month day-of-week</code>.
       The panel checks every 30 seconds, so the finest useful resolution is one minute.</p>
     <% if (site.type === 'wordpress') { %>
@@ -82,7 +82,7 @@
 
 <div class="modal-backdrop" id="job-modal">
   <div class="modal">
-    <div class="modal-head"><h3 id="job-modal-title">New cron job</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="job-modal"><%- icon('close') %></button></div>
+    <div class="modal-head"><h3 id="job-modal-title">New Cron Job</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="job-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <div class="field">
         <label for="job-name">Name</label>
@@ -109,14 +109,14 @@
     </div>
     <div class="modal-foot">
       <button class="btn" data-close-modal="job-modal">Cancel</button>
-      <button class="btn btn-primary" id="job-save">Save job</button>
+      <button class="btn btn-primary" id="job-save">Save Job</button>
     </div>
   </div>
 </div>
 
 <div class="modal-backdrop" id="output-modal">
   <div class="modal modal-wide">
-    <div class="modal-head"><h3>Last output</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="output-modal"><%- icon('close') %></button></div>
+    <div class="modal-head"><h3>Last Output</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="output-modal"><%- icon('close') %></button></div>
     <div class="modal-body"><div class="console console-tall" id="output-body"></div></div>
     <div class="modal-foot"><button class="btn" data-close-modal="output-modal">Close</button></div>
   </div>

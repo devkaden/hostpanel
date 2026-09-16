@@ -928,3 +928,20 @@ code.inline { background: var(--bg); padding: .1rem .35rem; border-radius: 4px; 
 .seclist li.warn { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
 .seclist li.warn .seclist-icon { color: var(--amber); }
 .seclist li.info .seclist-icon { color: var(--muted); }
+
+/* ------------------------------------------------------ account page --- */
+.account-head { display: flex; align-items: center; gap: 1rem; }
+.account-name { margin: 0 0 .2rem; }
+.avatar-xl { width: 52px; height: 52px; font-size: 1.3rem; }
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  padding: .9rem 0;
+  flex-wrap: wrap;
+}
+.account-row + .account-row { border-top: 1px solid var(--border); }
+.account-row-icon { color: var(--muted); display: flex; }
+.account-row-main { flex: 1; min-width: 220px; }
+.account-row-main strong { display: block; margin-bottom: .15rem; }
+.account-row-main .pill { margin-left: .35rem; }

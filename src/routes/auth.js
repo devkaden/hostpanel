@@ -199,6 +199,96 @@ router.get('/logout', (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Account
+ * ------------------------------------------------------------------ */
+/**
+ * Counts this account's other live sessions.
+ *
+ * The session store holds JSON, so this reads rather than queries. There are
+ * never many rows - sessions expire in hours - and a LIKE against serialised
+ * JSON would match a username appearing anywhere in the blob, which is exactly
+ * the kind of nearly-right that shows someone else's sessions as their own.
+ */
+function otherSessionCount(userId, currentSid) {
+  let count = 0;
+  try {
+    const rows = db.prepare('SELECT sid, data FROM sessions WHERE expires > ?').all(Date.now());
+    for (const row of rows) {
+      if (row.sid === currentSid) continue;
+      try {
+        const parsed = JSON.parse(row.data);
+        if (parsed && parsed.user && parsed.user.id === userId) count += 1;
+      } catch (_) { /* a malformed row is not a session */ }
+    }
+  } catch (_) { /* the count is informational; never fail the page over it */ }
+  return count;
+}
+
+function accountLocals(req, extra) {
+  const account = auth.findUser(req.user.id);
+  let recoveryRemaining = 0;
+  try { recoveryRemaining = JSON.parse(account.recovery_codes || '[]').length; } catch (_) { /* none */ }
+
+  return Object.assign(
+    {
+      title: 'Your account',
+      account,
+      error: null,
+      saved: false,
+      recoveryRemaining,
+      twoFactorRequired: auth.twoFactorRequiredFor(account),
+      minPasswordLength: auth.minPasswordLength(),
+      siteCount: db
+        .prepare('SELECT COUNT(*) AS n FROM sites WHERE owner_id = ?')
+        .get(req.user.id).n,
+      sessionsOther: otherSessionCount(req.user.id, req.sessionID),
+    },
+    extra || {}
+  );
+}
+
+router.get('/account', auth.requireAuth, (req, res) => {
+  res.render('account', accountLocals(req, { saved: req.query.saved === '1' }));
+});
+
+router.post('/account', auth.requireAuth, (req, res) => {
+  const email = String(req.body.email || '').trim().slice(0, 190);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return res.status(400).render('account', accountLocals(req, {
+      error: 'That does not look like an email address.',
+    }));
+  }
+  // Only the email is editable. The username is what sites and the activity
+  // log are recorded against, so renaming would quietly rewrite history.
+  db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, req.user.id);
+  audit(req, 'account.updated', req.user.username);
+  return res.redirect('/account?saved=1');
+});
+
+router.post('/account/sessions/end', auth.requireAuth, (req, res) => {
+  // Bumping the epoch invalidates every session except this one, which records
+  // the new value immediately. Deleting rows alone would not be enough: a
+  // cookie for a deleted row would simply start a fresh session.
+  const epoch = auth.bumpSessionEpoch(req.user.id);
+  try {
+    const rows = db.prepare('SELECT sid, data FROM sessions WHERE expires > ?').all(Date.now());
+    for (const row of rows) {
+      if (row.sid === req.sessionID) continue;
+      try {
+        const parsed = JSON.parse(row.data);
+        if (parsed && parsed.user && parsed.user.id === req.user.id) {
+          db.prepare('DELETE FROM sessions WHERE sid = ?').run(row.sid);
+        }
+      } catch (_) { /* ignore */ }
+    }
+  } catch (_) { /* the epoch bump alone is already sufficient */ }
+
+  req.session.epoch = epoch;
+  audit(req, 'account.sessions_ended', req.user.username);
+  return res.redirect('/account?saved=1');
+});
+
+/* ------------------------------------------------------------------ *
  * Password change (also used for the forced first-login change)
  * ------------------------------------------------------------------ */
 router.get('/account/password', auth.requireAuth, (req, res) => {

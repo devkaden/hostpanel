@@ -33,7 +33,7 @@
       <strong>Dependencies are not installed.</strong>
       This site has a <code>package.json</code> but no <code>node_modules</code>, so it exits
       on start with <code>Cannot find module</code>. Press
-      <button class="btn btn-sm btn-primary" id="deps-install">Install dependencies</button>
+      <button class="btn btn-sm btn-primary" id="deps-install">Install Dependencies</button>
       and the site will start on its own once that finishes.
     </div>
   <% } %>
@@ -63,7 +63,7 @@
 
   <div class="card" id="progress-card" style="<%= provisioning ? '' : 'display:none' %>">
     <div class="card-head">
-      <h2>Build output</h2>
+      <h2>Build Output</h2>
       <button class="btn btn-sm btn-ghost" aria-label="Close" onclick="document.getElementById('progress-card').style.display='none'">Hide</button>
     </div>
     <div class="console" id="progress-console">Waiting for output...</div>
@@ -71,7 +71,7 @@
 
   <% if (previewUrl) { %>
     <button class="btn btn-sm preview-show" id="preview-show" style="display:none">
-      <%- icon('eye') %><span>Show preview</span>
+      <%- icon('eye') %><span>Show Preview</span>
     </button>
     <div class="card" id="preview-card">
       <div class="card-head">
@@ -142,7 +142,7 @@
     <!-- ------------------------------------------------------------ left -->
     <div>
       <div class="card">
-        <h2>How this site is running</h2>
+        <h2>How This Site Is Running</h2>
         <dl class="dl">
           <dt>Status</dt><dd><%= live.state %></dd>
           <dt>Reachable at</dt>
@@ -193,7 +193,7 @@
 
       <div class="card">
         <div class="card-head">
-          <h2>Reverse proxy (NPMplus)</h2>
+          <h2>Reverse Proxy (NPMplus)</h2>
           <% if (site.ssl) { %><span class="pill pill-ssl">SSL active</span><% } %>
         </div>
 
@@ -220,9 +220,9 @@
             <button class="btn btn-primary btn-sm" id="proxy-sync">
               <%= site.npm_proxy_id ? 'Re-sync proxy + SSL' : 'Create proxy + SSL' %>
             </button>
-            <button class="btn btn-sm" id="proxy-sync-nossl">Sync without SSL</button>
+            <button class="btn btn-sm" id="proxy-sync-nossl">Sync Without SSL</button>
             <% if (site.npm_proxy_id) { %>
-              <button class="btn btn-danger btn-sm" id="proxy-delete">Remove proxy host</button>
+              <button class="btn btn-danger btn-sm" id="proxy-delete">Remove Proxy Host</button>
             <% } %>
           </div>
           <p class="hint muted small mt">
@@ -246,13 +246,13 @@
             <input id="s-domain" name="domain" type="text" value="<%= site.domain || '' %>" placeholder="app.example.com">
           </div>
           <div class="field adv">
-            <label for="s-extra">Other addresses for the same site</label>
+            <label for="s-extra">Other Addresses for the Same Site</label>
             <input id="s-extra" name="extra_domains" type="text" value="<%= site.extra_domains || '' %>" placeholder="www.example.com, example.com">
           </div>
 
           <% if (site.type === 'php' || site.type === 'wordpress') { %>
             <div class="field">
-              <label for="s-runtime">PHP version</label>
+              <label for="s-runtime">PHP Version</label>
               <select id="s-runtime" name="runtime_version">
                 <% (site.type === 'wordpress' ? config.wordpressPhpVersions : config.phpVersions).forEach(function (v) { %>
                   <option value="<%= v %>" <%= site.runtime_version === v ? 'selected' : '' %>><%= v %></option>
@@ -264,7 +264,7 @@
 
           <% if (site.type === 'node') { %>
             <div class="field">
-              <label for="s-runtime">Node.js version</label>
+              <label for="s-runtime">Node.js Version</label>
               <select id="s-runtime" name="runtime_version">
                 <% config.nodeVersions.forEach(function (v) { %>
                   <option value="<%= v %>" <%= site.runtime_version === v ? 'selected' : '' %>><%= v %></option>
@@ -282,11 +282,11 @@
             </div>
             <div class="field-row adv">
               <div class="field">
-                <label for="s-install">Install command</label>
+                <label for="s-install">Install Command</label>
                 <input id="s-install" name="install_command" type="text" value="<%= site.install_command %>">
               </div>
               <div class="field">
-                <label for="s-start">Start command</label>
+                <label for="s-start">Start Command</label>
                 <input id="s-start" name="start_command" type="text" value="<%= site.start_command %>">
               </div>
             </div>
@@ -311,11 +311,11 @@
 
           <div class="field-row adv">
             <div class="field">
-              <label for="s-mem">Memory limit (MB)</label>
+              <label for="s-mem">Memory Limit (MB)</label>
               <input id="s-mem" name="memory_mb" type="number" min="0" step="64" value="<%= site.memory_mb %>">
             </div>
             <div class="field">
-              <label for="s-cpu">CPU limit (cores)</label>
+              <label for="s-cpu">CPU Limit (Cores)</label>
               <input id="s-cpu" name="cpu_limit" type="number" min="0" step="0.25" value="<%= site.cpu_limit %>">
             </div>
           </div>
@@ -377,17 +377,17 @@
           </div>
 
           <div class="btn-row">
-            <button class="btn btn-primary" type="submit">Save settings</button>
-            <button class="btn" type="button" data-action="rebuild">Apply changes and restart</button>
-            <button class="btn adv" type="button" onclick="HP.openModal('template-modal')">Save as preset</button>
+            <button class="btn btn-primary" type="submit">Save Settings</button>
+            <button class="btn" type="button" data-action="rebuild">Apply Changes and Restart</button>
+            <button class="btn adv" type="button" onclick="HP.openModal('template-modal')">Save as Preset</button>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h2>Danger zone</h2>
+        <h2>Danger Zone</h2>
         <p class="muted small">Deleting removes the container, the network, the NPMplus proxy host and (optionally) every file in the site directory. This cannot be undone.</p>
-        <button class="btn btn-danger" onclick="HP.openModal('delete-modal')">Delete this site</button>
+        <button class="btn btn-danger" onclick="HP.openModal('delete-modal')">Delete This Site</button>
       </div>
     </div>
   </div>
@@ -408,30 +408,30 @@
       <div class="check">
         <input type="checkbox" id="delete-files" checked>
         <div>
-          <label for="delete-files">Also delete the site files</label>
+          <label for="delete-files">Also Delete the Site Files</label>
           <div class="hint">Unchecked, <code class="inline"><%= dirs.root %></code> is left on disk.</div>
         </div>
       </div>
     </div>
     <div class="modal-foot">
       <button class="btn" data-close-modal="delete-modal">Cancel</button>
-      <button class="btn btn-danger" id="delete-confirm-btn">Delete permanently</button>
+      <button class="btn btn-danger" id="delete-confirm-btn">Delete Permanently</button>
     </div>
   </div>
 </div>
 
 <div class="modal-backdrop" id="template-modal">
   <div class="modal">
-    <div class="modal-head"><h3>Save as preset</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="template-modal"><%- icon('close') %></button></div>
+    <div class="modal-head"><h3>Save as Preset</h3><button class="btn btn-sm btn-ghost" aria-label="Close" data-close-modal="template-modal"><%- icon('close') %></button></div>
     <div class="modal-body">
       <p class="muted small">Remembers this site's runtime, commands, limits, environment variables and container
         options so you can start the next site from them. The name, domain, port and database are not included.</p>
-      <div class="field"><label for="tpl-name">Preset name</label><input id="tpl-name" type="text" placeholder="Node app with Postgres env"></div>
-      <div class="field"><label for="tpl-desc">Short description (optional)</label><input id="tpl-desc" type="text"></div>
+      <div class="field"><label for="tpl-name">Preset Name</label><input id="tpl-name" type="text" placeholder="Node app with Postgres env"></div>
+      <div class="field"><label for="tpl-desc">Short Description (Optional)</label><input id="tpl-desc" type="text"></div>
     </div>
     <div class="modal-foot">
       <button class="btn" data-close-modal="template-modal">Cancel</button>
-      <button class="btn btn-primary" id="tpl-save">Save preset</button>
+      <button class="btn btn-primary" id="tpl-save">Save Preset</button>
     </div>
   </div>
 </div>
