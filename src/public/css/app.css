@@ -416,6 +416,18 @@ textarea { resize: vertical; min-height: 84px; font-family: var(--mono); font-si
   font-size: .7rem; font-weight: 700;
 }
 
+.rename-row { display: flex; gap: .5rem; align-items: center; }
+.rename-row input { margin: 0; }
+.rename-row .btn { flex: none; }
+
+/* ----------------------------------------------------- proxy summary --- */
+/* One sentence about the domain, rather than a table of NPMplus record ids.
+   "#12" and "#99" were accurate and told nobody anything. */
+.proxy-summary { display: flex; gap: .5rem; align-items: baseline; font-size: .9rem; margin: 0; }
+.proxy-summary .ico { flex: none; position: relative; top: .15em; }
+.proxy-summary.is-ok .ico { color: var(--green); }
+.proxy-summary.is-bad .ico { color: var(--amber); }
+
 /* ---------------------------------------------------------- site search */
 .site-search {
   display: flex; align-items: center; gap: .55rem;

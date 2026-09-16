@@ -620,11 +620,14 @@ async function restartSite(site) {
 }
 
 /** Recreates the container from the current settings, keeping the site data. */
-async function rebuildSite(siteId) {
+async function rebuildSite(siteId, { keepProgress = false } = {}) {
   const site = getSite(siteId);
   if (!site) throw new Error('Site not found');
   const log = (line) => pushProgress(siteId, line);
-  clearProgress(siteId);
+  // A rebuild started from somewhere else - a rename, say - has already told
+  // the user what it is doing, and clearing that would leave them watching a
+  // log that starts in the middle.
+  if (!keepProgress) clearProgress(siteId);
   setBusy(siteId, true);
   setStatus(siteId, 'provisioning');
   log('Rebuilding container from current settings');
@@ -707,6 +710,92 @@ async function runInstall(site, opts) {
     throw err;
   } finally {
     setBusy(site.id, false);
+  }
+}
+
+/**
+ * Renames a site, and everything named after it.
+ *
+ * The name is not a label: it is the container name, the database container
+ * name, the derived image name and the directory the files live in. So this is
+ * a move and a rebuild, not an UPDATE - which is why it is here rather than in
+ * the settings form, where it would look like changing a caption and would
+ * leave a container called hp-oldname serving a directory called newname.
+ *
+ * What does not change: the site's id, so its cron jobs, its owner and its
+ * Docker network follow it; and its port, so the reverse proxy keeps working
+ * without being touched.
+ *
+ * The files move by renaming the directory - one atomic operation on the same
+ * filesystem. Copying gigabytes of someone's site to rename it would be a poor
+ * trade, and a half-finished copy a worse one.
+ */
+async function renameSite(siteId, rawName) {
+  const site = getSite(siteId);
+  if (!site) throw new Error('Site not found');
+
+  const name = String(rawName || '').trim().toLowerCase();
+  if (name === site.name) return site;
+  if (!NAME_RE.test(name)) {
+    throw new Error('Name must be 3-32 characters, lowercase letters, digits and hyphens only.');
+  }
+  if (getSiteByName(name)) throw new Error(`A site named "${name}" already exists.`);
+
+  const oldDirs = siteDirs(site);
+  const newRoot = path.join(config.sitesDir, name);
+  if (fs.existsSync(newRoot)) {
+    throw new Error(`A directory for "${name}" already exists on disk. Move or remove it first.`);
+  }
+
+  const wasRunning = ['running', 'healthy'].includes(
+    await docker.containerState(tpl.containerName(site))
+  );
+
+  clearProgress(siteId);
+  setBusy(siteId, true);
+  const log = (line) => pushProgress(siteId, line);
+  log(`Renaming ${site.name} to ${name}`);
+
+  try {
+    // Containers first: a container holding the old directory open is what
+    // turns a rename into a half-moved site.
+    log('Stopping and removing the old containers');
+    await docker.removeContainer(tpl.containerName(site)).catch(() => {});
+    if (site.db_container_id) {
+      await docker.removeContainer(tpl.dbContainerName(site)).catch(() => {});
+    }
+
+    log('Moving the site directory');
+    await fsp.rename(oldDirs.root, newRoot);
+
+    // Only now is the database told, so a failure above leaves a site that
+    // still describes itself correctly.
+    db.prepare('UPDATE sites SET name = ? WHERE id = ?').run(name, siteId);
+
+    log('Rebuilding under the new name');
+    await rebuildSite(siteId, { keepProgress: true });
+
+    if (!wasRunning) {
+      // A site that was stopped before being renamed should still be stopped
+      // afterwards. Renaming is not a reason to put something back online.
+      log('The site was stopped before the rename, so stopping it again');
+      await stopSite(getSite(siteId)).catch(() => {});
+    }
+
+    log('Rename complete');
+    return getSite(siteId);
+  } catch (err) {
+    // Put the directory back if the move happened but what followed did not,
+    // so the site is where its database row says it is either way.
+    if (!fs.existsSync(oldDirs.root) && fs.existsSync(newRoot)) {
+      await fsp.rename(newRoot, oldDirs.root).catch(() => {});
+      db.prepare('UPDATE sites SET name = ? WHERE id = ?').run(site.name, siteId);
+    }
+    setStatus(siteId, 'error');
+    log(`ERROR: ${err.message}`);
+    throw err;
+  } finally {
+    setBusy(siteId, false);
   }
 }
 
@@ -919,6 +1008,7 @@ module.exports = {
   startSite,
   stopSite,
   restartSite,
+  renameSite,
   deleteSite,
   statusFor,
   diskUsage,

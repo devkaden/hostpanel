@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/node-22%2B-3a63e0" alt="Node 22+">
   <img src="https://img.shields.io/badge/license-MIT-3a63e0" alt="MIT">
-  <img src="https://img.shields.io/badge/tests-464-3fbf7f" alt="464 tests">
+  <img src="https://img.shields.io/badge/tests-493-3fbf7f" alt="493 tests">
 </p>
 
 ---
@@ -30,6 +30,8 @@ proxy the domain and issue the Let's Encrypt certificate — in one step.
 - **Browser shell** into any container, which still works when the site is down
 - **Live logs** — container output plus the site's own access and error logs
 - **Scheduled tasks** per site, with the last run's output kept
+- **Rename a site** — the container, the folder and the image follow; the port
+  and domain stay, so the reverse proxy needs no change
 - **Multi-user** — administrators see everything, standard users see their own
   sites, with per-user site quotas
 - **Two-factor authentication** — TOTP, optional or required by role, with
@@ -129,6 +131,8 @@ later, as "the domain stopped working".
   in one pass.
 - Changing a site's port or domains fixes its proxy host automatically, so the
   drift mostly stops happening.
+- **HTTPS** on a site's page is a single on/off choice. Turning it off detaches
+  the certificate but keeps it, so it can go back on without issuing a new one.
 
 Anything hand-written in a host's advanced config is kept: the panel only ever
 rewrites its own marked block. A proxy host the panel did not create is never
@@ -241,34 +245,28 @@ category of problem, and costs nothing.
 <details>
 <summary>The site preview is blank</summary>
 
-Three different things produce an identical white rectangle. The panel now
-tells them apart and says which:
+The preview is not a frame pointed at your site. The panel fetches the site's
+pages itself and serves them back under `/preview/<id>/`, rewriting
+root-relative URLs on the way, so the frame is same-origin with the panel. That
+removes the three things that used to produce an identical white rectangle with
+nothing in the console: a framing header from the site or from NPMplus, a
+plain-HTTP frame inside an HTTPS page, and a port your browser cannot reach even
+though the server can. None of them apply to a same-origin frame, and there is
+nothing to configure in your reverse proxy.
 
-1. **The site refuses to be framed.** `X-Frame-Options` or
-   `frame-ancestors 'none'`. Express with Helmet sends it by default — and so
-   does **NPMplus**, which means a site that frames fine on its port can still
-   be blocked once it goes through the proxy. The panel probes the address it
-   is about to frame, so it can tell you which of the two is responsible. For
-   NPMplus, open the proxy host → Advanced:
+What is left, and what it looks like:
 
-   ```nginx
-   more_clear_headers "X-Frame-Options";
-   add_header Content-Security-Policy "frame-ancestors 'self' https://your-panel-domain" always;
-   ```
+- **The site is not answering.** The preview shows "This site is not answering"
+  with the port, rather than nothing. Usually the app bound `127.0.0.1` instead
+  of `0.0.0.0`, or listens on a different port than **Internal port** says. The
+  Logs tab prints the address the app chose.
+- **The page is very large.** Pages over 8 MB are not rewritten; the preview
+  says so and suggests opening it in a tab.
 
-   `more_clear_headers` rather than `proxy_hide_header`, because the header is
-   added by the proxy itself and `proxy_hide_header` only strips headers coming
-   from behind it. Put the same two lines in
-   `/data/nginx/custom/server_proxy.conf` on the NPMplus host to apply it to
-   every site at once.
-
-2. **Mixed content.** A panel on HTTPS cannot embed a plain-HTTP frame, and the
-   browser blocks it silently. The panel switches to the site's own domain when
-   there is one.
-
-3. **The port is not reachable from your machine.** The panel asks your browser
-   directly rather than assuming that reaching the site from the server means
-   you can reach it too.
+If the frame is blank with a console message about `frame-ancestors`, the policy
+naming it is the one to look at: the panel sends `frame-ancestors 'self'` on
+`/preview/` and `'none'` everywhere else, so a `'none'` on a preview response is
+coming from something in front of the panel.
 
 </details>
 

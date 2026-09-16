@@ -449,6 +449,85 @@ console.log('\nsystem packages and unreachable apps');
 
   check('the user is not asked to edit their reverse proxy',
     !/proxy_hide_header|more_clear_headers/.test(view));
+
+  /*
+   * The last thing to blank the preview was the panel's own policy.
+   * X-Frame-Options: DENY and frame-ancestors 'none' were set on every
+   * response including /preview/, so the browser refused to let the panel
+   * frame the panel:
+   *
+   *   Refused to load .../preview/1/ because it does not appear in the
+   *   frame-ancestors directive of the Content Security Policy
+   *
+   * Proxying put the preview beyond everyone's framing rules except ours.
+   */
+  const index = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8');
+  const at = index.indexOf("req.path.startsWith('/preview/')");
+  const previewHeaders = at === -1 ? '' : index.slice(at, at + 700);
+
+  check('the preview path gets its own headers', at !== -1,
+    'otherwise the panel-wide frame-ancestors applies to it');
+  check('the panel may frame it', /frame-ancestors 'self'/.test(previewHeaders), previewHeaders);
+  check('nobody else may', !/frame-ancestors '\*'/.test(previewHeaders));
+  check('and it is not sent X-Frame-Options at all',
+    !/X-Frame-Options/.test(previewHeaders),
+    'DENY there refuses the panel too, and it overrides nothing');
+  check('the preview is not given the panel\'s own content policy',
+    !/default-src/.test(previewHeaders),
+    "a policy written for the panel would only break the user's site");
+  check('the exemption returns before the strict headers are set',
+    previewHeaders.indexOf('return next()') !== -1);
+  check('every other page still refuses framing outright',
+    /frame-ancestors 'none'/.test(index) && /'X-Frame-Options': 'DENY'/.test(index));
+}
+
+/* ------------------------------------------------------------- rename --- */
+{
+  console.log('\nrenaming a site');
+  const sitesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'sites.js'), 'utf8');
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'sites.js'), 'utf8');
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'site.ejs'), 'utf8');
+
+  const fn = sitesSrc.slice(
+    sitesSrc.indexOf('async function renameSite'),
+    sitesSrc.indexOf('async function deleteSite')
+  );
+  check('there is a rename', fn.length > 0);
+  check('the new name is held to the same rule as a new site',
+    /NAME_RE\.test\(name\)/.test(fn));
+  check('a name already in use is refused', /getSiteByName\(name\)/.test(fn));
+  check('and so is a directory already sitting there',
+    /fs\.existsSync\(newRoot\)/.test(fn),
+    'renaming onto an existing folder would merge two sites');
+
+  // The order is the whole trick: a running container holds the old directory,
+  // so moving first leaves a container serving a path that no longer exists.
+  check('containers go before the directory moves',
+    fn.indexOf('removeContainer') < fn.indexOf('fsp.rename'),
+    'a container holding the old directory open turns this into a half-move');
+  check('the files are moved, not copied', /fsp\.rename\(oldDirs\.root, newRoot\)/.test(fn),
+    'copying gigabytes to change a name is the wrong trade');
+  check('the database is told only after the move succeeds',
+    fn.indexOf('fsp.rename(oldDirs.root') < fn.indexOf("UPDATE sites SET name"),
+    'otherwise a failed move leaves a row describing a site that is not there');
+  check('the container is rebuilt under the new name', /rebuildSite\(siteId/.test(fn));
+  check('a failed rename puts the directory back',
+    /fsp\.rename\(newRoot, oldDirs\.root\)/.test(fn));
+  check('a site that was stopped stays stopped', /wasRunning/.test(fn),
+    'renaming is not a reason to put something back online');
+  check('the port is not touched', !/SET port|allocatePort/.test(fn),
+    'keeping the port is what saves the reverse proxy from needing a change');
+  check('the site keeps its id', !/DELETE FROM sites|INSERT INTO sites/.test(fn),
+    'cron jobs, the owner and the Docker network all hang off the id');
+
+  check('the route is behind the site access check',
+    /'\/sites\/:id\/rename',\s*\n\s*loadSite/.test(routes));
+  check('a busy site cannot be renamed underneath a running job',
+    /rename'[\s\S]{0,400}sites\.isBusy/.test(routes));
+
+  check('the page explains what renaming actually does',
+    /container is replaced and the site folder moves/.test(view));
+  check('and asks before doing it', /Rename to "/.test(view));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

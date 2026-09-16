@@ -177,6 +177,20 @@ console.log('\nchecking and fixing proxy hosts');
   const settingsRoutes = read('src/routes/settings.js');
 
   check('the site page has a Check & Fix button', /id="proxy-repair"/.test(site));
+  check('HTTPS is a single choice, not two buttons',
+    /id="ssl-mode"/.test(site) && !/proxy-sync-nossl/.test(site),
+    '"Re-sync proxy + SSL" and "Sync without SSL" described the API, not the decision');
+  check('both states of that choice are offered',
+    /value="on"[\s\S]{0,120}value="off"/.test(site));
+  check('turning it off is possible at all', /'\/sites\/:id\/proxy\/ssl'/.test(routes),
+    'before this the only way off a certificate was deleting the proxy host');
+  check('a failed certificate puts the control back',
+    /select\.value = previous/.test(site),
+    'the page must not claim HTTPS is on when it is not');
+  check('the card leads with what is true, not with API ids',
+    /class="proxy-summary/.test(site) && /\.proxy-summary/.test(read('src/public/css/app.css')));
+  check('removing the proxy host asks first',
+    /Remove the proxy host\?/.test(site));
   check('it reports what changed rather than just reloading',
     /Proxy host repaired/.test(site));
   check('the framing choice is a per-site checkbox', /id="allow_framing"/.test(site));

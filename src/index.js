@@ -140,6 +140,38 @@ app.use(auth.csrf);
  * framed, MIME types are never sniffed, and no referrer leaks the panel URL.
  */
 app.use((req, res, next) => {
+  /*
+   * The preview is the one thing the panel does frame, so it gets its own
+   * headers.
+   *
+   * Everything else here says "this page may never be framed" - X-Frame-Options
+   * DENY and frame-ancestors 'none'. Those applied to /preview/ too, which is
+   * the panel refusing to let the panel frame the panel: the browser answered
+   *
+   *   Refused to load .../preview/1/ because it does not appear in the
+   *   frame-ancestors directive of the Content Security Policy
+   *
+   * and the frame stayed blank. Proxying the site through the panel was meant
+   * to put the preview beyond the reach of framing rules, and it did - beyond
+   * everyone's except our own.
+   *
+   * frame-ancestors 'self' rather than dropping the policy: the panel may frame
+   * it, nobody else may, which is exactly the rule intended all along. No other
+   * directives, because the body is the user's own site and a policy written
+   * for the panel would only break it. The frame is sandboxed without
+   * allow-same-origin, so the content is on an opaque origin and cannot reach
+   * back into the page around it.
+   */
+  if (req.path.startsWith('/preview/')) {
+    res.set({
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      ...(config.disableCsp ? {} : { 'Content-Security-Policy': "frame-ancestors 'self'" }),
+    });
+    res.set('Cache-Control', 'no-cache, must-revalidate, private');
+    return next();
+  }
+
   // frame-src has to cover the site previews, which are plain http on a
   // high-numbered port that changes per site. A host-and-port-wildcard source
   // is not honoured consistently across browsers, and getting it wrong shows

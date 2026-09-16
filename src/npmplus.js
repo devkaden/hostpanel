@@ -755,10 +755,13 @@ async function repairProxy(site, { adopt = false, requestSsl = false } = {}) {
     proxyId = created.id;
     fixed.push(`Created proxy host #${proxyId} for ${domains.join(', ')}.`);
   } else {
+    // The certificate goes back on only if HTTPS is meant to be on. A site
+    // switched to plain HTTP keeps its certificate id so it can be turned back
+    // on without issuing a new one, and a repair must not quietly undo that.
     await api(
       'PUT',
       `/api/nginx/proxy-hosts/${proxyId}`,
-      proxyPayload(site, domains, site.npm_cert_id, host)
+      proxyPayload(site, domains, site.ssl ? site.npm_cert_id : 0, host)
     );
     for (const issue of issues) {
       if (issue.code === 'disabled') continue; // handled by its own endpoint below
@@ -783,6 +786,36 @@ async function repairProxy(site, { adopt = false, requestSsl = false } = {}) {
   }
 
   return { proxyId, certId, ssl, issues, fixed };
+}
+
+/**
+ * Turns HTTPS on or off for a site, as one decision rather than two buttons.
+ *
+ * Turning it off detaches the certificate but does not delete it: the common
+ * reason to turn HTTPS off is that the certificate could not be issued yet -
+ * DNS has not propagated, port 80 is not open - and deleting a working
+ * certificate because someone flipped a switch would be its own small
+ * disaster. Turning it back on reuses whatever is there.
+ */
+async function setSsl(site, enabled) {
+  const domains = domainsOf(site);
+  if (!domains.length) throw new Error('This site has no domain, so there is nothing to secure.');
+
+  const proxyId = site.npm_proxy_id;
+  const host = proxyId ? await getProxyHost(proxyId) : null;
+  if (!host) {
+    throw new Error('This site has no proxy host yet. Press Check & Fix to create one first.');
+  }
+
+  if (!enabled) {
+    await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, 0, host));
+    return { proxyId, certId: site.npm_cert_id || null, ssl: false };
+  }
+
+  let certId = site.npm_cert_id || null;
+  if (!certId) certId = await requestCertificate(domains);
+  await api('PUT', `/api/nginx/proxy-hosts/${proxyId}`, proxyPayload(site, domains, certId, host));
+  return { proxyId, certId, ssl: true };
 }
 
 /* What each repaired issue is called afterwards, in the past tense. */
@@ -841,6 +874,7 @@ module.exports = {
   syncProxyHost,
   checkProxy,
   repairProxy,
+  setSsl,
   diagnoseProxy,
   enableProxyHost,
   advancedConfigFor,

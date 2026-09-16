@@ -482,6 +482,32 @@ router.post(
   })
 );
 
+/**
+ * Renames a site.
+ *
+ * Its own endpoint rather than a field on the settings form, because it is not
+ * a saved value: the container is replaced and the site's directory moves. A
+ * field that quietly did all that when you tabbed out of it would be a trap.
+ */
+router.post(
+  '/sites/:id/rename',
+  loadSite,
+  wrap(async (req, res) => {
+    const site = sites.getSite(req.site.id);
+    const name = String(req.body.name || '').trim().toLowerCase();
+    if (sites.isBusy(site.id)) {
+      return res.status(409).json({ error: 'This site is busy. Wait for the current job to finish.' });
+    }
+    try {
+      const renamed = await sites.renameSite(site.id, name);
+      audit(req, 'site.rename', site.name, `now ${renamed.name}`);
+      return res.json({ ok: true, name: renamed.name });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  })
+);
+
 /* ------------------------------------------------------------------ *
  * NPMplus proxy
  * ------------------------------------------------------------------ */
@@ -566,6 +592,44 @@ router.post(
       if (err.existingProxy) {
         return res.status(409).json({ error: err.message, existingProxy: err.existingProxy });
       }
+      return res.status(502).json({ error: err.message });
+    }
+  })
+);
+
+/**
+ * Turns HTTPS on or off.
+ *
+ * One switch instead of the old pair of buttons ("Re-sync proxy + SSL" and
+ * "Sync without SSL"), which described how the panel talks to NPMplus rather
+ * than what the user wanted, and gave no way to turn a certificate off again
+ * short of deleting the proxy host.
+ */
+router.post(
+  '/sites/:id/proxy/ssl',
+  loadSite,
+  wrap(async (req, res) => {
+    if (!npmplus.isEnabled()) {
+      return res.status(400).json({ error: 'NPMplus integration is turned off in Settings.' });
+    }
+    const site = sites.getSite(req.site.id);
+    const enabled = req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on';
+    try {
+      const result = await npmplus.setSsl(site, enabled);
+      db.prepare('UPDATE sites SET npm_cert_id = ?, ssl = ? WHERE id = ?').run(
+        result.certId || null,
+        result.ssl ? 1 : 0,
+        site.id
+      );
+      audit(req, enabled ? 'site.ssl_on' : 'site.ssl_off', site.name);
+      return res.json({
+        ok: true,
+        ...result,
+        message: enabled
+          ? 'HTTPS is on. The certificate renews itself.'
+          : 'HTTPS is off. The site answers over plain HTTP.',
+      });
+    } catch (err) {
       return res.status(502).json({ error: err.message });
     }
   })

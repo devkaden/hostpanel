@@ -205,74 +205,110 @@
         </div>
       <% } %>
 
-      <div class="card">
+      <div class="card" id="proxy-card">
         <div class="card-head">
-          <h2>Reverse Proxy (NPMplus)</h2>
-          <% if (site.ssl) { %><span class="pill pill-ssl">SSL active</span><% } %>
+          <h2>Domain &amp; HTTPS</h2>
+          <% if (site.npm_proxy_id && !proxyIssues.length && !proxyError) { %>
+            <span class="pill <%= site.ssl ? 'pill-ssl' : 'pill-running' %>">
+              <%= site.ssl ? 'HTTPS On' : 'HTTP Only' %>
+            </span>
+          <% } %>
         </div>
 
         <% if (!npmplusConfigured) { %>
-          <p class="muted small">NPMplus is not configured yet.
-            <% if (user.role === 'admin') { %><a href="/settings">Set it up in Settings</a> to manage proxy hosts from here.<% } %></p>
+          <p class="muted small">No reverse proxy is connected, so this site is reached by port
+            number rather than by domain.
+            <% if (user.role === 'admin') { %><a href="/settings">Connect NPMplus in Settings</a>.<% } %></p>
+
         <% } else if (!domains.length) { %>
-          <p class="muted small">Add a domain below, then create the proxy host.</p>
+          <p class="muted small">This site has no domain yet. Add one under
+            <strong>Settings</strong> on the right, and the proxy host and certificate are set up
+            for you.</p>
+
         <% } else { %>
-          <dl class="dl">
-            <dt>Proxy Host</dt>
-            <dd><%= site.npm_proxy_id ? '#' + site.npm_proxy_id : 'not created' %></dd>
-            <dt>Certificate</dt>
-            <dd><%= site.npm_cert_id ? '#' + site.npm_cert_id : (site.ssl ? 'attached' : 'none') %></dd>
-            <% if (proxyHost) { %>
-              <dt>Forwards To</dt>
-              <dd><code class="inline"><%= proxyHost.forward_scheme %>://<%= proxyHost.forward_host %>:<%= proxyHost.forward_port %></code></dd>
-              <dt>Domains</dt>
-              <dd><%= (proxyHost.domain_names || []).join(', ') %></dd>
+          <%
+            /* One sentence for the state, rather than a table of API ids.
+               "#12" and "#99" were true and told nobody anything. */
+            const proxyReady = Boolean(site.npm_proxy_id && proxyHost && !proxyIssues.length);
+          %>
+
+          <p class="proxy-summary <%= proxyReady ? 'is-ok' : 'is-bad' %>">
+            <% if (proxyReady) { %>
+              <%- icon('check', 'ico-sm') %>
+              <strong><%= domains.join(', ') %></strong> is served over
+              <strong><%= site.ssl ? 'HTTPS' : 'HTTP' %></strong>, forwarded to this site on port
+              <%= site.port %>.
+            <% } else if (!site.npm_proxy_id) { %>
+              <%- icon('alert', 'ico-sm') %>
+              <strong><%= domains.join(', ') %></strong> has no proxy host yet, so the domain will
+              not reach this site. Press <strong>Set Up Domain</strong>.
+            <% } else { %>
+              <%- icon('alert', 'ico-sm') %>
+              The proxy host for <strong><%= domains.join(', ') %></strong> does not match this site.
             <% } %>
-          </dl>
+          </p>
+
           <% if (proxyError) { %><div class="alert alert-warn mt small"><%= proxyError %></div><% } %>
 
           <% if (proxyIssues && proxyIssues.length) { %>
             <div class="alert alert-warn mt small" id="proxy-issues">
-              <strong>This proxy host does not match the site.</strong>
-              <ul>
+              <ul style="margin:0">
                 <% proxyIssues.forEach(function (i) { %><li><%= i %></li><% }) %>
               </ul>
-              Press <strong>Check &amp; Fix</strong> to put it right.
             </div>
-          <% } else if (site.npm_proxy_id && proxyHost) { %>
-            <p class="muted small mt" id="proxy-ok">
-              <%- icon('check', 'ico-sm') %> The proxy host matches this site.
-            </p>
           <% } %>
+
+          <div class="field mt" id="ssl-field">
+            <label for="ssl-mode">HTTPS</label>
+            <%
+              /* Before there is a proxy host there is nothing to switch, so the
+                 control is disabled - but it still says what Set Up Domain will
+                 do, and HTTPS is what almost everyone wants. */
+              const sslOn = site.npm_proxy_id ? Boolean(site.ssl) : true;
+            %>
+            <select id="ssl-mode" <%= site.npm_proxy_id ? '' : 'disabled' %>>
+              <option value="on" <%= sslOn ? 'selected' : '' %>>On - free certificate from Let's Encrypt</option>
+              <option value="off" <%= sslOn ? '' : 'selected' %>>Off - plain HTTP only</option>
+            </select>
+            <div class="hint">
+              <% if (site.ssl) { %>
+                The certificate renews itself. Turning this off keeps it, so it can be switched
+                back on without issuing a new one.
+              <% } else { %>
+                The DNS for <%= domains.join(', ') %> must point at your reverse proxy before a
+                certificate can be issued, or the check fails.
+              <% } %>
+            </div>
+          </div>
 
           <div class="btn-row mt">
             <button class="btn btn-primary btn-sm" id="proxy-repair"
-                    title="Compare this site against its proxy host and correct anything that has drifted">
-              <%- icon('shield') %><span>Check &amp; Fix</span>
+                    title="Compare this site against its proxy host and correct anything that does not match">
+              <%- icon('shield') %>
+              <span><% if (site.npm_proxy_id) { %>Check &amp; Fix<% } else { %>Set Up Domain<% } %></span>
             </button>
-            <button class="btn btn-sm" id="proxy-sync">
-              <%= site.npm_proxy_id ? 'Re-sync With SSL' : 'Create Proxy + SSL' %>
-            </button>
-            <button class="btn btn-sm adv" id="proxy-sync-nossl">Sync Without SSL</button>
             <% if (site.npm_proxy_id) { %>
               <button class="btn btn-danger btn-sm adv" id="proxy-delete">Remove Proxy Host</button>
             <% } %>
           </div>
 
-          <div class="check mt">
+          <div class="check mt adv">
             <input type="checkbox" id="allow_framing" <%= site.allow_framing ? 'checked' : '' %>>
             <div>
               <label for="allow_framing">Let Other Pages Embed This Site In A Frame</label>
               <div class="hint">Clears the <code class="inline">X-Frame-Options</code> header the
-                reverse proxy adds, which browsers use to stop a site being framed. The site preview
-                in this panel does not need it - that is served back through the panel - so turn this
-                on only if you embed the site in a dashboard or another page. Press Check &amp; Fix
-                afterwards.</div>
+                reverse proxy adds, which browsers use to stop a site being framed. The preview
+                on this page does not need it - that is served back through the panel - so turn
+                this on only if you embed the site in a dashboard or another page. Press Check
+                &amp; Fix afterwards.</div>
             </div>
           </div>
-          <p class="hint muted small mt">
-            Point the DNS for <%= domains.join(', ') %> at NPMplus before requesting a certificate,
-            or the HTTP-01 challenge will fail.
+
+          <p class="muted small mt" style="margin-bottom:0">
+            Proxy host <%= site.npm_proxy_id ? '#' + site.npm_proxy_id : 'not created' %> in NPMplus<%
+              if (proxyHost) { %>, forwarding to
+              <code class="inline"><%= proxyHost.forward_scheme %>://<%= proxyHost.forward_host %>:<%= proxyHost.forward_port %></code><%
+              } %>.
           </p>
         <% } %>
       </div>
@@ -441,6 +477,22 @@
       </div>
 
       <div class="card">
+        <h2>Rename This Site</h2>
+        <p class="muted small">
+          The name is also the container name and the folder the files live in, so renaming moves
+          the folder and rebuilds the container. The site is briefly offline; the files, the port
+          and the domain are kept, so the reverse proxy needs no change.
+        </p>
+        <div class="rename-row">
+          <input type="text" id="rename-to" value="<%= site.name %>" autocomplete="off"
+                 spellcheck="false" pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]"
+                 aria-label="New name for this site">
+          <button class="btn" type="button" id="rename-btn"><%- icon('edit') %><span>Rename</span></button>
+        </div>
+        <div class="hint">Lowercase letters, digits and hyphens. 3-32 characters.</div>
+      </div>
+
+      <div class="card">
         <h2>Danger Zone</h2>
         <p class="muted small">Deleting removes the container, the network, the NPMplus proxy host and (optionally) every file in the site directory. This cannot be undone.</p>
         <button class="btn btn-danger" onclick="HP.openModal('delete-modal')">Delete This Site</button>
@@ -494,6 +546,7 @@
 
 <script>
   var SITE_ID = <%= site.id %>;
+  var CURRENT_NAME = <%- jsonScript(site.name) %>;
 
   /* ---------------------------------------------------------- actions */
   // The tab bar's buttons are handled in app.js, so every site tab has them.
@@ -581,58 +634,100 @@
     }
   });
 
-  /* ------------------------------------------------------------ proxy */
-  function bindProxy(id, body, label) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('click', async function () {
-      el.disabled = true;
-      var original = el.textContent;
-      el.textContent = 'Talking to NPMplus...';
-      var url = '/sites/' + SITE_ID + (id === 'proxy-delete' ? '/proxy/delete' : '/proxy');
+  /* ------------------------------------------------------------ rename */
+  (function () {
+    var btn = document.getElementById('rename-btn');
+    var input = document.getElementById('rename-to');
+    if (!btn || !input) return;
 
-      var send = async function (payload) {
-        var res = await HP.api(url, { body: payload });
-        HP.toast(label + ' ok', 'ok');
-        setTimeout(function () { location.reload(); }, 800);
-      };
+    async function rename() {
+      var name = input.value.trim().toLowerCase();
+      if (!name || name === CURRENT_NAME) return;
 
+      var ok = await HP.confirm({
+        title: 'Rename to "' + name + '"?',
+        message: 'The container is replaced and the site folder moves to ' + name + '. ' +
+          'The site is offline for a moment while it rebuilds.\n\n' +
+          'Files, port and domain are kept, so nothing changes in your reverse proxy.',
+        confirmText: 'Rename it'
+      });
+      if (!ok) return;
+
+      btn.disabled = true;
+      btn.setAttribute('data-busy', '1');
+      showProgress();
       try {
-        await send(body);
+        var res = await HP.api('/sites/' + SITE_ID + '/rename', { body: { name: name } });
+        HP.toast('Renamed to ' + res.name, 'ok');
+        setTimeout(function () { location.reload(); }, 900);
       } catch (err) {
-        var existing = err.data && err.data.existingProxy;
-        if (existing) {
-          // Never repoint someone else's proxy host without asking.
-          var ok = await HP.confirm({
-            title: 'That domain is already proxied',
-            message: 'NPMplus proxy host #' + existing.id + ' currently forwards ' +
-              existing.domains.join(', ') + ' to ' + existing.forward + '.\n\n' +
-              'Taking it over repoints it at this site. Whatever it serves now will stop working.',
-            confirmText: 'Take it over',
-            danger: true
-          });
-          if (ok) {
-            try {
-              var adoptBody = {};
-              for (var k in body) adoptBody[k] = body[k];
-              adoptBody.adopt = true;
-              await send(adoptBody);
-              return;
-            } catch (err2) {
-              HP.toast(err2.message, 'error');
-            }
-          }
-        } else {
-          HP.toast(err.message, 'error');
-        }
-        el.disabled = false;
-        el.textContent = original;
+        await HP.alert({ title: 'Rename failed', message: err.message, tone: 'danger' });
+        btn.disabled = false;
+        btn.removeAttribute('data-busy');
+      }
+    }
+
+    btn.addEventListener('click', rename);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); rename(); }
+    });
+  })();
+
+  /* ------------------------------------------------- remove proxy host */
+  (function () {
+    var btn = document.getElementById('proxy-delete');
+    if (!btn) return;
+    btn.addEventListener('click', async function () {
+      var ok = await HP.confirm({
+        title: 'Remove the proxy host?',
+        message: 'The domain will stop reaching this site until a new proxy host is made. ' +
+          'The site itself, its files and its container are untouched.',
+        confirmText: 'Remove it',
+        danger: true
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      btn.setAttribute('data-busy', '1');
+      try {
+        await HP.api('/sites/' + SITE_ID + '/proxy/delete', { body: {} });
+        HP.toast('Proxy host removed', 'ok');
+        setTimeout(function () { location.reload(); }, 800);
+      } catch (err) {
+        HP.toast(err.message, 'error');
+        btn.disabled = false;
+        btn.removeAttribute('data-busy');
       }
     });
-  }
-  bindProxy('proxy-sync', { ssl: true }, 'Proxy host synced');
-  bindProxy('proxy-sync-nossl', { ssl: false }, 'Proxy host synced');
-  bindProxy('proxy-delete', {}, 'Proxy host removed');
+  })();
+
+  /* --------------------------------------------------------- https on/off */
+  (function () {
+    var select = document.getElementById('ssl-mode');
+    if (!select) return;
+    var previous = select.value;
+
+    select.addEventListener('change', async function () {
+      var wanted = select.value;
+      select.disabled = true;
+      try {
+        var res = await HP.api('/sites/' + SITE_ID + '/proxy/ssl', {
+          body: { enabled: wanted === 'on' }
+        });
+        HP.toast(res.message, 'ok');
+        setTimeout(function () { location.reload(); }, 900);
+      } catch (err) {
+        // Put the control back to what is actually true. A certificate that
+        // could not be issued must not leave the page claiming HTTPS is on.
+        select.value = previous;
+        select.disabled = false;
+        await HP.alert({
+          title: wanted === 'on' ? 'The certificate could not be issued' : 'HTTPS could not be turned off',
+          message: err.message,
+          tone: 'danger'
+        });
+      }
+    });
+  })();
 
   /* ------------------------------------------------- check and fix proxy */
   (function () {
@@ -648,7 +743,12 @@
           body: { allow_framing: framing.checked ? '1' : '0' }
         });
       }
-      return HP.api('/sites/' + SITE_ID + '/proxy/repair', { body: { adopt: adopt } });
+      // If HTTPS is meant to be on and there is no certificate yet, this is
+      // where it gets one - so "Set Up Domain" is genuinely one press.
+      var ssl = document.getElementById('ssl-mode');
+      return HP.api('/sites/' + SITE_ID + '/proxy/repair', {
+        body: { adopt: adopt, ssl: Boolean(ssl && ssl.value === 'on') }
+      });
     }
 
     btn.addEventListener('click', async function () {
