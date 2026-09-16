@@ -40,6 +40,22 @@
     </div>
   <% } %>
 
+  <% if (live.state === 'running' && live.reachable === false && !provisioning && !busy) { %>
+    <div class="alert alert-warn" id="unreachable-alert">
+      <strong>The container is running, but nothing is answering on port <%= site.port %>.</strong>
+      That is why the preview is blank. Two things cause it nearly every time:
+      <ul style="margin:.4rem 0 0 1.1rem">
+        <li>The app listens on <code>127.0.0.1</code> or <code>localhost</code>. Inside a container
+          that means "reachable only from within this container". It has to bind
+          <code>0.0.0.0</code> to be reachable from outside.</li>
+        <li>The app listens on a different port than <strong>Internal port</strong> is set to
+          (currently <code><%= site.app_port %></code>). The panel sets <code>PORT</code> in the
+          environment &mdash; use it, or change the setting to match what the app hard-codes.</li>
+      </ul>
+      The <strong>Logs</strong> tab usually prints the address the app chose.
+    </div>
+  <% } %>
+
   <% if (live.state === 'missing' && !provisioning && !busy) { %>
     <div class="alert alert-error" id="missing-alert">
       <strong>This site has no container yet.</strong> That usually means the build failed or it was removed
@@ -232,6 +248,15 @@
                   <option value="<%= v %>" <%= site.runtime_version === v ? 'selected' : '' %>><%= v %></option>
                 <% }) %>
               </select>
+            </div>
+            <div class="field">
+              <label for="s-packages">
+                Extra programs
+                <span class="help" data-help="Command-line programs your app runs, installed into this site's container. Space separated, e.g. ffmpeg yt-dlp imagemagick git. These are system programs, not npm packages. Press Apply changes afterwards."></span>
+              </label>
+              <input id="s-packages" name="system_packages" type="text"
+                     value="<%= site.system_packages %>"
+                     placeholder="ffmpeg yt-dlp">
             </div>
             <div class="field-row adv">
               <div class="field">

@@ -358,6 +358,51 @@ const tpl = require(path.join(APP, 'site-templates.js'));
     /Dependencies are not installed/.test(view));
 }
 
+console.log('\nsystem packages and unreachable apps');
+{
+  const tplSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'site-templates.js'), 'utf8');
+  const sitesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'sites.js'), 'utf8');
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'views', 'site.ejs'), 'utf8');
+
+  // Package names are interpolated into a shell command, so they have to look
+  // like package names and nothing else.
+  const clean = (value) =>
+    String(value || '')
+      .split(/[\s,]+/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .filter((p) => /^[a-zA-Z0-9][a-zA-Z0-9._+-]*$/.test(p))
+      .slice(0, 40);
+
+  check('accepts real package names',
+    clean('ffmpeg yt-dlp imagemagick').join(' ') === 'ffmpeg yt-dlp imagemagick');
+  check('accepts commas as separators', clean('ffmpeg, git').length === 2);
+  // Every surviving token has to be a bare package name. "rm" surviving from
+  // "ffmpeg; rm -rf /" is fine - it reaches apt as a package that does not
+  // exist, not as a command - but a semicolon or a slash must never survive.
+  const injected = clean('ffmpeg; rm -rf /');
+  check('no shell metacharacter survives',
+    injected.every((p) => /^[a-zA-Z0-9][a-zA-Z0-9._+-]*$/.test(p)), injected.join(' '));
+  check('and the dangerous parts are dropped',
+    !injected.includes('ffmpeg;') && !injected.includes('/') && !injected.includes('-rf'),
+    injected.join(' '));
+  check('rejects backticks and substitution', clean('$(id) `id` ffmpeg').join(' ') === 'ffmpeg');
+  check('rejects a leading dash that would read as a flag', clean('--force-yes').length === 0);
+  check('caps the list', clean(Array.from({ length: 80 }, (_, i) => 'p' + i).join(' ')).length === 40);
+
+  check('packages produce a site-specific image, not a mutated base',
+    /derivedImageName/.test(tplSrc) && /hostpanel-\$\{site\.name\}/.test(tplSrc));
+  check('the image is built before the container is created',
+    /ensureSiteImage\(site, log\);\s*\n\s*await docker\.ensureImage/.test(sitesSrc));
+  check('a site with no extra packages uses the base image unchanged',
+    /if \(systemPackages\(site\)\.length\) return derivedImageName\(site\);/.test(tplSrc));
+
+  check('the panel checks whether anything answers on the port',
+    /function portAnswers/.test(sitesSrc) && /reachable/.test(sitesSrc));
+  check('and explains a blank preview rather than leaving it blank',
+    /nothing is answering on port/.test(view) && /0\.0\.0\.0/.test(view));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

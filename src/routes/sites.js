@@ -339,7 +339,7 @@ router.post(
       `UPDATE sites SET domain = ?, extra_domains = ?, runtime_version = ?, install_command = ?,
          start_command = ?, app_port = ?, port = ?, env_json = ?, memory_mb = ?, cpu_limit = ?,
          notes = ?, owner_id = ?, custom_image = ?, extra_volumes = ?, extra_labels = ?,
-         docker_network = ? WHERE id = ?`
+         docker_network = ?, system_packages = ? WHERE id = ?`
     ).run(
       domain,
       extras.join(','),
@@ -357,6 +357,9 @@ router.post(
       extraVolumes,
       extraLabels,
       dockerNetwork,
+      String(
+        body.system_packages !== undefined ? body.system_packages : site.system_packages
+      ).slice(0, 500),
       site.id
     );
 

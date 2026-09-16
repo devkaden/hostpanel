@@ -129,6 +129,12 @@ addColumnIfMissing('sites', 'docker_network', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('sites', 'memory_mb', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('sites', 'cpu_limit', 'REAL NOT NULL DEFAULT 0');
 addColumnIfMissing('sites', 'notes', "TEXT NOT NULL DEFAULT ''");
+// Space-separated OS packages to bake into the site's image. Node and PHP
+// images are deliberately minimal, so anything that shells out - ffmpeg,
+// yt-dlp, imagemagick, git - is simply absent, and an app that needs one fails
+// at runtime with a message about a missing binary rather than a missing
+// dependency.
+addColumnIfMissing('sites', 'system_packages', "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('users', 'site_quota', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('users', 'must_change_pw', 'INTEGER NOT NULL DEFAULT 0');
 

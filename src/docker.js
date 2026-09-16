@@ -208,6 +208,81 @@ async function runOneShot(image, cmd, { binds = [], workdir, env, network, onPro
 }
 
 /**
+ * Builds a site image with extra OS packages baked in, and returns its tag.
+ *
+ * The official node and php images are deliberately minimal, so an app that
+ * shells out to ffmpeg, yt-dlp or imagemagick finds nothing there. Installing
+ * into a running container is not enough: the container is recreated on every
+ * rebuild and the packages vanish with it. Committing the install to a
+ * site-specific image makes it survive, and keeps the base image untouched for
+ * every other site.
+ *
+ * Done with run-and-commit rather than a Dockerfile so no build context has to
+ * be written to disk, and so the output streams back live.
+ */
+async function buildImageWithPackages(baseImage, packages, tag, onProgress) {
+  await ensureImage(baseImage, onProgress);
+
+  const list = packages.join(' ');
+  const say = onProgress || (() => {});
+  say(`Installing system packages: ${list}`);
+
+  // pip is the route for yt-dlp: the Debian package lags badly, and YouTube
+  // changes often enough that a stale copy is a broken one.
+  const aptNames = packages.filter((p) => p !== 'yt-dlp');
+  const wantsYtDlp = packages.includes('yt-dlp');
+
+  const steps = ['set -e', 'export DEBIAN_FRONTEND=noninteractive', 'apt-get update'];
+  if (aptNames.length) {
+    steps.push(`apt-get install -y --no-install-recommends ${aptNames.join(' ')}`);
+  }
+  if (wantsYtDlp) {
+    steps.push('apt-get install -y --no-install-recommends curl ca-certificates');
+    steps.push(
+      'curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp ' +
+        '-o /usr/local/bin/yt-dlp && chmod 0755 /usr/local/bin/yt-dlp'
+    );
+  }
+  steps.push('rm -rf /var/lib/apt/lists/*');
+
+  const container = await client().createContainer({
+    Image: baseImage,
+    Cmd: ['sh', '-lc', steps.join(' && ')],
+    Labels: { 'hostpanel.managed': 'true', 'hostpanel.role': 'imagebuild' },
+    HostConfig: { NetworkMode: 'bridge' },
+  });
+
+  try {
+    await container.start();
+    const logs = await container.logs({ stdout: true, stderr: true, follow: true });
+    await new Promise((resolve) => {
+      logs.on('data', (chunk) => {
+        const text = demuxToString(chunk).trim();
+        if (text) say(text.split('\n').slice(-4).join('\n'));
+      });
+      logs.on('end', resolve);
+      logs.on('error', resolve);
+    });
+
+    const result = await container.wait();
+    if (result.StatusCode !== 0) {
+      const buf = await container.logs({ stdout: true, stderr: true, tail: 60 });
+      throw new Error(
+        `installing system packages failed (exit ${result.StatusCode}). ` +
+          `Last output: ${demuxToString(buf).trim().slice(-500)}`
+      );
+    }
+
+    const [repo, version] = tag.split(':');
+    await container.commit({ repo, tag: version || 'latest' });
+    say(`Built ${tag}`);
+    return tag;
+  } finally {
+    await container.remove({ force: true }).catch(() => {});
+  }
+}
+
+/**
  * Starts a throwaway container with a terminal attached.
  *
  * For getting a shell when the site's own container will not stay up. A Node
@@ -361,6 +436,7 @@ module.exports = {
   logStream,
   exec,
   execInteractive,
+  buildImageWithPackages,
   runInteractive,
   runOneShot,
   demuxToString,

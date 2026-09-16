@@ -100,7 +100,24 @@ function envArray(site, extra = {}) {
   return Object.entries(merged).map(([k, v]) => `${k}=${v}`);
 }
 
-function imageFor(site) {
+/** The packages the user asked for, cleaned up. */
+function systemPackages(site) {
+  return String(site.system_packages || '')
+    .split(/[\s,]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    // A package name reaches a shell, so keep it to what a package name can be.
+    .filter((p) => /^[a-zA-Z0-9][a-zA-Z0-9._+-]*$/.test(p))
+    .slice(0, 40);
+}
+
+/** The tag for a site's own image, once packages have been baked into it. */
+function derivedImageName(site) {
+  return `hostpanel-${site.name}:latest`;
+}
+
+/** The image before any extra packages - what the derived image is built from. */
+function baseImageFor(site) {
   // An explicit image overrides the type default entirely.
   if (site.custom_image && String(site.custom_image).trim()) {
     return String(site.custom_image).trim();
@@ -117,6 +134,18 @@ function imageFor(site) {
     default:
       throw new Error(`Unknown site type: ${site.type}`);
   }
+}
+
+/**
+ * The image a site's container actually runs.
+ *
+ * With extra OS packages requested, that is the site's own committed image
+ * rather than the shared base - installing into a running container would not
+ * survive the next rebuild.
+ */
+function imageFor(site) {
+  if (systemPackages(site).length) return derivedImageName(site);
+  return baseImageFor(site);
 }
 
 function containerName(site) {
@@ -456,6 +485,9 @@ http
 module.exports = {
   buildSpec,
   imageFor,
+  baseImageFor,
+  systemPackages,
+  derivedImageName,
   containerName,
   dbContainerName,
   networkName,

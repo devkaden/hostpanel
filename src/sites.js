@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const net = require('net');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -192,7 +193,6 @@ async function checkHostPort(port, excludeSiteId) {
  */
 function portIsFree(port, excludeSiteId) {
   return new Promise((resolve) => {
-    const net = require('net');
     const tester = net
       .createServer()
       .once('error', async (err) => {
@@ -442,6 +442,7 @@ async function provisionSite(siteId, { createProxy = true } = {}) {
       await docker.ensureImage(spec.dbImage, log);
     }
     log(`Preparing image ${spec.image}`);
+    await ensureSiteImage(site, log);
     await docker.ensureImage(spec.image, log);
 
     // Remove any stale containers from a previous attempt.
@@ -546,6 +547,25 @@ async function waitForDatabase(dbContainer, log, attempts = 40) {
  * Lifecycle actions
  * ------------------------------------------------------------------ */
 /**
+ * Bakes the site's requested OS packages into an image of its own.
+ *
+ * Must happen before the container is created, because the container is
+ * created from the image. Running an install inside the container instead
+ * would work exactly once: the next rebuild recreates it from the base image
+ * and the packages are gone again.
+ */
+async function ensureSiteImage(site, log) {
+  const packages = tpl.systemPackages(site);
+  if (!packages.length) return;
+  await docker.buildImageWithPackages(
+    tpl.baseImageFor(site),
+    packages,
+    tpl.derivedImageName(site),
+    log
+  );
+}
+
+/**
  * True when a Node site has a package.json but no installed dependencies.
  *
  * This is the state every Node deploy passes through, and on its own it is a
@@ -612,6 +632,7 @@ async function rebuildSite(siteId) {
     await writeSeedFiles(site);
     const spec = tpl.buildSpec(site, dirs);
 
+    await ensureSiteImage(site, log);
     await docker.ensureImage(spec.image, log);
     await docker.removeContainer(spec.name).catch(() => {});
     if (tpl.ownsNetwork(site)) await docker.ensureNetwork(tpl.networkName(site));
@@ -728,7 +749,30 @@ async function statusFor(site) {
   // Surfaced so the UI can explain an exited Node container rather than just
   // reporting it as stopped: missing dependencies is by far the most common
   // reason, and it is fixable in one click.
-  return { state, dbState, needsDependencies: needsDependencies(site) };
+  //
+  // "running but not answering" is the other state worth naming. A container
+  // can be perfectly healthy while the app inside it is unreachable, and the
+  // preview then shows a blank page with nothing to explain it.
+  const reachable = state === 'running' ? await portAnswers(site.port) : null;
+  return { state, dbState, reachable, needsDependencies: needsDependencies(site) };
+}
+
+/** Opens a TCP connection to a published port, to see whether anything answers. */
+function portAnswers(port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    if (!port) return resolve(false);
+    const socket = new net.Socket();
+    const done = (answer) => {
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(port, '127.0.0.1');
+    return undefined;
+  });
 }
 
 async function diskUsage(site) {

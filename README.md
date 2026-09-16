@@ -157,6 +157,24 @@ app that crashes on start can still have its dependencies installed. A failing
 install is reported as a failure rather than quietly followed by a start that
 cannot work.
 
+**Extra programs.** Node and PHP images are deliberately minimal, so an app
+that shells out to `ffmpeg`, `yt-dlp`, `imagemagick` or `git` finds nothing
+there. A site's settings have an **Extra programs** field — space separated —
+and pressing **Apply changes** bakes them into an image of that site's own,
+leaving the shared base image untouched. Installing them into a running
+container instead would work exactly once: the next rebuild recreates it from
+the base image and they are gone. `yt-dlp` is fetched from its own releases
+rather than apt, because the packaged version lags and a stale copy is a broken
+one.
+
+**A blank preview gets explained.** If the container is running but nothing
+answers on the site's port, the site page says so and names the two causes that
+account for nearly every instance: an app listening on `127.0.0.1` (inside a
+container that means "this container only" — it has to bind `0.0.0.0`), or an
+app listening on a different port than **Internal port** is set to. The panel
+sets `PORT` in the environment for Node sites; apps that hard-code a port need
+the setting changed to match.
+
 **The shell works when the site is down.** If the container is stopped or
 exited, the panel opens a temporary container with the same files mounted and
 gives you a shell there. Changes are kept, because it is the same directory;
