@@ -206,10 +206,14 @@ const bodyBytes = async (body) => {
       err && err.message);
     check('and it gives up on schedule', Date.now() - began < 2000);
 
-    // bodyFor must not fail the upload over it: the handle is still worth a try.
+    // A file the browser will not read here will not read inside the request
+    // either. Falling back to the handle only swaps a message for a stall.
     const item = { path: 'evicted.psd', file: stuck };
-    const body = await bodyFor(item);
-    check('an unreadable file still falls back to its handle', body === stuck);
+    let failed = null;
+    try { await bodyFor(item); } catch (e) { failed = e; }
+    check('an unreadable file fails with a message, not a handle',
+      !!failed && /could not read/i.test(failed.message), failed && failed.message);
+    check('and the message names the file', !!failed && /evicted\.psd/.test(failed.message));
   }
 
   console.log('\nmemory bounds');

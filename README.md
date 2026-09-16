@@ -219,6 +219,14 @@ in memory at once, and the bytes are released as soon as the file is away.
 Anything over 64 MB is passed through as a handle rather than buffered — reading
 a 500 MB file into a tab is worse than the problem it solves.
 
+**A file input is cleared only after its upload has finished.** Resetting an
+`<input type="file">` is normal practice, so that picking the same file twice in
+a row fires `change` again — but in WebKit the `File` objects an input produced
+stop being readable the moment that input is reset. Clearing it while the
+upload was still running revoked access to the very files being sent, and every
+read came back `NotReadableError` while identical bytes generated in the page
+uploaded perfectly.
+
 Each file goes out with `XMLHttpRequest` first, because that is the only way to
 report progress, and falls back to `fetch()` on failure. If a request neither
 succeeds nor fails within 20 seconds it is abandoned rather than left holding

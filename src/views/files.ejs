@@ -592,18 +592,35 @@
 
   document.getElementById('upload-btn').addEventListener('click', function () { fileInput.click(); });
   document.getElementById('upload-folder-btn').addEventListener('click', function () { folderInput.click(); });
-  fileInput.addEventListener('change', function () {
-    if (fileInput.files.length) uploadFiles(Array.prototype.map.call(fileInput.files, function (f) {
-      return { file: f, path: f.name };
-    }));
-    fileInput.value = '';
-  });
-  folderInput.addEventListener('change', function () {
-    if (folderInput.files.length) uploadFiles(Array.prototype.map.call(folderInput.files, function (f) {
-      return { file: f, path: f.webkitRelativePath || f.name };
-    }));
-    folderInput.value = '';
-  });
+  /**
+   * Starts an upload from a file input, and does not clear the input until it
+   * has finished.
+   *
+   * The clearing is what matters. An <input type="file"> is reset after use so
+   * that picking the same file twice in a row fires change again - but in
+   * WebKit the File objects an input produced stop being readable the moment
+   * that input is reset. Clearing it while an upload was still running (the
+   * upload is asynchronous; the clear was not waiting for it) revoked access to
+   * the very files being sent, and every read came back NotReadableError while
+   * the same bytes generated in the page uploaded perfectly. Awaiting the
+   * upload first costs nothing and removes the whole class of failure.
+   */
+  function pickFrom(input, pathOf) {
+    input.addEventListener('change', async function () {
+      if (!input.files.length) return;
+      var picked = Array.prototype.map.call(input.files, function (f) {
+        return { file: f, path: pathOf(f) };
+      });
+      try {
+        await uploadFiles(picked);
+      } finally {
+        input.value = '';
+      }
+    });
+  }
+
+  pickFrom(fileInput, function (f) { return f.name; });
+  pickFrom(folderInput, function (f) { return f.webkitRelativePath || f.name; });
 
   /**
    * Walks a dropped directory tree. The entries API is the only way to read
@@ -823,13 +840,19 @@
     }
     if (!file) throw new Error('No readable data for ' + item.path);
 
+    // Too big to hold in memory: hand it over and let the watchdog cover it.
     if (file.size > READ_INTO_MEMORY_MAX) return file;
 
     try {
       return await readBytes(file, 30000);
     } catch (err) {
-      ulog('read failed, sending the handle instead', item.path, err.message);
-      return file; // the browser may still manage it; the watchdog covers us
+      // Deliberately not falling back to the handle. If the browser cannot
+      // read the file here it cannot read it inside the request either - that
+      // path just replaces a clear message with a twenty second stall.
+      ulog('read failed', item.path, err.message);
+      throw new Error(
+        'The browser could not read "' + item.path + '" (' + err.message + ').'
+      );
     }
   }
 
@@ -1148,7 +1171,9 @@
     var ok = total - failures.length;
     if (ok) HP.toast('Uploaded ' + ok + ' file' + (ok === 1 ? '' : 's'), 'ok');
     if (failures.length) {
-      var readFailed = failures.some(function (f) { return /see below/.test(f.error); });
+      var readFailed = failures.some(function (f) {
+        return /see below|could not read|NotReadableError/i.test(f.error);
+      });
       var msg = ok ? 'The rest went through.' : 'Nothing was uploaded.';
       if (readFailed) {
         msg += ' The browser could not open some of the dropped files, so they ' +

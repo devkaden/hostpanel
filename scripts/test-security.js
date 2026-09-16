@@ -276,6 +276,17 @@ console.log('\ndropped-folder file handles');
     /reader\.abort\(\)/.test(view));
   check('a picked file is read into memory before it is sent',
     /return await readBytes\(file, 30000\);/.test(view));
+
+  // Resetting an <input type="file"> revokes the File objects it produced, so
+  // clearing it while the upload is still running makes those files unreadable
+  // mid-flight - WebKit reports NotReadableError and nothing is ever sent.
+  const picker = view.slice(view.indexOf('function pickFrom'), view.indexOf('pickFrom(fileInput'));
+  check('a file input is cleared only after the upload finishes',
+    /await uploadFiles\(picked\);/.test(picker) &&
+      /finally \{\s*input\.value = '';/.test(picker),
+    'the input is reset while the upload is still reading from it');
+  check('no handler clears a file input synchronously',
+    !/\.files\.length\) uploadFiles/.test(view));
   check('but not one too large to hold',
     /READ_INTO_MEMORY_MAX/.test(view));
   check('the bytes are released once the file is sent',
